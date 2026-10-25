@@ -21,6 +21,7 @@ import { usableModels } from "../lib/model-chain";
 import { syncChrome } from "../lib/chrome";
 import { snapshotBuild, restoreSnapshot, pruneHistory, hasSnapshot } from "../lib/history";
 import { publishWorkspace } from "../lib/publish";
+import { buildOpenCodeConfig } from "../lib/opencode-config";
 
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
 const BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS || 1_800_000);
@@ -60,50 +61,8 @@ function appendStage(buildId: string, stage: string): Promise<void> {
   return appendLog(buildId, `[stage:${stage}]`);
 }
 
-function writeModelConfig(workspace: string, model: string): void {
-  const cfg: Record<string, any> = {
-    model,
-    permission: {
-      read: "allow",
-      edit: "allow",
-      glob: "allow",
-      grep: "allow",
-      list: "allow",
-      bash: "allow",
-      external_directory: "deny",
-    },
-  };
-  // A generic OpenAI-compatible endpoint isn't in OpenCode's provider
-  // registry, so it must be declared. The key stays an env reference — no
-  // secret is written into the workspace.
-  const [provider, ...rest] = model.split("/");
-  const modelId = rest.join("/");
-  if (provider === "custom" && process.env.CUSTOM_BASE_URL) {
-    cfg.provider = {
-      custom: {
-        npm: "@ai-sdk/openai-compatible",
-        name: process.env.CUSTOM_PROVIDER_NAME || "Custom provider",
-        options: {
-          baseURL: process.env.CUSTOM_BASE_URL,
-          apiKey: "{env:CUSTOM_API_KEY}",
-        },
-        models: { [modelId]: { name: modelId } },
-      },
-    };
-  }
-  if (provider === "freellmapi" && process.env.FREELLMAPI_BASE_URL) {
-    cfg.provider = {
-      freellmapi: {
-        npm: "@ai-sdk/openai-compatible",
-        name: "FreeLLMAPI",
-        options: {
-          baseURL: process.env.FREELLMAPI_BASE_URL,
-          apiKey: "{env:FREELLMAPI_KEY}",
-        },
-        models: { [modelId]: { name: modelId } },
-      },
-    };
-  }
+function ensureOpencodeConfig(workspace: string, model: string): void {
+  const cfg = buildOpenCodeConfig(model);
   fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify(cfg, null, 2));
 }
 
@@ -132,7 +91,7 @@ async function runAgentTurn(
   for (let attempt = 0; attempt < models.length; attempt++) {
     const model = models[attempt];
     try {
-      writeModelConfig(workspace, model);
+      ensureOpencodeConfig(workspace, model);
     } catch (e: any) {
       await appendLog(buildId, "could not write opencode.json: " + e.message);
     }
@@ -599,7 +558,7 @@ async function processBuild(buildId: string): Promise<void> {
     }
     await appendLog(buildId, "build model chain: " + buildModels.join(" → "));
 
-    serve = await startServe(workspace);
+    serve = await startServe(workspace, buildModels);
     await appendLog(buildId, `opencode serve listening on 127.0.0.1:${serve.port}`);
 
     // business_name lives on `sites`, not `briefs`; the prompt needs both.

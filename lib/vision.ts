@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { usableModels } from "./model-chain";
+import { buildAgentEnv } from "./agent-env";
 
 const OPENCODE_BIN = process.env.OPENCODE_BIN || "/home/builder/.opencode/bin/opencode";
 // Vision-capable models tried in order — the primary one timed out on
@@ -165,7 +166,7 @@ export type VisionResult =
  * OpenCode's CLI stalls when its stdout/stderr are pipes (the child serve
  * process never finishes), so run it with output redirected to temp files.
  */
-function runVision(args: string[], workspace: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
+function runVision(args: string[], workspace: string, timeoutMs: number, model: string): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve, reject) => {
     const base = path.join(os.tmpdir(), `dukan-vision-${crypto.randomUUID()}`);
     const outPath = `${base}.out`;
@@ -175,7 +176,7 @@ function runVision(args: string[], workspace: string, timeoutMs: number): Promis
     const child = spawn(OPENCODE_BIN, args, {
       cwd: workspace,
       stdio: ["ignore", outFd, errFd],
-      env: { ...process.env, HOME: process.env.HOME || "/home/builder" },
+      env: buildAgentEnv(model),
     });
     let timedOut = false;
     let settled = false;
@@ -223,7 +224,8 @@ export async function analyzeDesign(imagePath: string, workspace: string): Promi
       const { stdout, stderr, timedOut } = await runVision(
         ["run", "--standalone", "-m", model, "--format", "json", "--file", imagePath, VISION_PROMPT],
         workspace,
-        timeoutMs
+        timeoutMs,
+        model
       );
       if (timedOut) {
         lastError = `vision model ${model} timed out after ${timeoutMs / 1000}s`;
