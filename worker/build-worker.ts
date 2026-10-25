@@ -21,7 +21,7 @@ import { usableModels } from "../lib/model-chain";
 import { syncChrome } from "../lib/chrome";
 import { snapshotBuild, restoreSnapshot, pruneHistory, hasSnapshot } from "../lib/history";
 import { publishWorkspace } from "../lib/publish";
-import { buildOpenCodeConfig } from "../lib/opencode-config";
+import { writeOpenCodeConfig } from "../lib/opencode-config";
 import { sanitizeWorkspace } from "../lib/workspace-security";
 
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
@@ -63,8 +63,7 @@ function appendStage(buildId: string, stage: string): Promise<void> {
 }
 
 function ensureOpencodeConfig(workspace: string, model: string): void {
-  const cfg = buildOpenCodeConfig(model);
-  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify(cfg, null, 2));
+  writeOpenCodeConfig(workspace, model);
 }
 
 type TurnOutcome = {

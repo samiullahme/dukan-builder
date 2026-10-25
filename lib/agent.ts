@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import crypto from "crypto";
 import { buildAgentEnv } from "./agent-env";
+import { writeOpenCodeConfig } from "./opencode-config";
 
 /**
  * Thin client for `opencode serve` (verified against opencode 1.19.0's live
@@ -27,8 +28,10 @@ function basicAuth(h: ServeHandle): string {
 }
 
 export async function startServe(workspaceDir: string, models: readonly string[] = []): Promise<ServeHandle> {
+  const initialModel = models[0] || process.env.OPENCODE_MODEL || "opencode/qwen3.6-plus-free";
+  writeOpenCodeConfig(workspaceDir, initialModel);
   const password = crypto.randomBytes(24).toString("hex");
-  const proc = spawn(OPENCODE_BIN, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
+  const proc = spawn(process.env.OPENCODE_BIN || OPENCODE_BIN, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
     cwd: workspaceDir,
     env: { ...buildAgentEnv(models), OPENCODE_SERVER_PASSWORD: password },
     stdio: ["ignore", "pipe", "pipe"],

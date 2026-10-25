@@ -1,6 +1,26 @@
-import { describe, expect, it } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentEnv } from "../lib/agent-env";
+import { startServe, stopServe } from "../lib/agent";
 import { buildOpenCodeConfig } from "../lib/opencode-config";
+import { analyzeDesign } from "../lib/vision";
+
+const tempDirs: string[] = [];
+const originalOpencodeBin = process.env.OPENCODE_BIN;
+
+function makeTempDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dukan-agent-env-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  if (originalOpencodeBin === undefined) delete process.env.OPENCODE_BIN;
+  else process.env.OPENCODE_BIN = originalOpencodeBin;
+  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 describe("OpenCode process security", () => {
   it("passes only the process basics and keys for selected providers", () => {
@@ -37,5 +57,81 @@ describe("OpenCode process security", () => {
 
     expect(config.permission.bash).toBe("deny");
     expect(config.permission.external_directory).toBe("deny");
+  });
+
+  it("writes restrictive opencode.json before spawning opencode serve and opencode run, overwriting bash allow", async () => {
+    const binDir = makeTempDir();
+    const fakeBin = path.join(binDir, "fake-opencode");
+    fs.writeFileSync(
+      fakeBin,
+      [
+        `#!${process.execPath}`,
+        `const fs = require("fs");`,
+        `const path = require("path");`,
+        `const cfgRaw = fs.readFileSync(path.join(process.cwd(), "opencode.json"), "utf8");`,
+        `fs.writeFileSync(path.join(process.cwd(), "observed-at-spawn.json"), cfgRaw);`,
+        `if (process.argv[2] === "serve") {`,
+        `  process.stdout.write("listening on http://127.0.0.1:43210\\n");`,
+        `  setInterval(() => {}, 1000);`,
+        `} else {`,
+        `  process.stdout.write(JSON.stringify({`,
+        `    site_title: "Test Bakery",`,
+        `    design_prompt: "Warm bakery layout with hero, services, gallery and contact sections in a clean editorial grid with generous spacing.",`,
+        `    style: "warm editorial bakery",`,
+        `    layout_description: "Hero followed by services and gallery",`,
+        `    sections: [{ name: "hero", description: "Hero banner", text_content: "Fresh bread" }, { name: "services", description: "Menu", text_content: "Pastries" }],`,
+        `    color_palette: ["#1a1a1a", "#c9a227", "#f7f3eb"],`,
+        `    typography: "Playfair Display, Inter",`,
+        `    image_queries: ["artisan bakery", "sourdough bread"],`,
+        `    video_queries: []`,
+        `  }) + "\\n");`,
+        `  process.exit(0);`,
+        `}`,
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    process.env.OPENCODE_BIN = fakeBin;
+
+    // 1. Verify startServe overwrites an existing bash: "allow" config BEFORE spawning opencode serve.
+    const serveWorkspace = makeTempDir();
+    fs.writeFileSync(
+      path.join(serveWorkspace, "opencode.json"),
+      JSON.stringify({
+        model: "legacy/model",
+        permission: { bash: "allow", external_directory: "allow" },
+      })
+    );
+
+    const handle = await startServe(serveWorkspace, ["opencode/test-build-model"]);
+    try {
+      const observedServe = JSON.parse(
+        fs.readFileSync(path.join(serveWorkspace, "observed-at-spawn.json"), "utf8")
+      );
+      expect(observedServe.model).toBe("opencode/test-build-model");
+      expect(observedServe.permission.bash).toBe("deny");
+      expect(observedServe.permission.external_directory).toBe("deny");
+    } finally {
+      await stopServe(handle);
+    }
+
+    // 2. Verify analyzeDesign (runVision) overwrites an existing bash: "allow" config BEFORE spawning opencode run.
+    const visionWorkspace = makeTempDir();
+    const refImage = path.join(visionWorkspace, "reference.png");
+    fs.writeFileSync(refImage, "fake-image");
+    fs.writeFileSync(
+      path.join(visionWorkspace, "opencode.json"),
+      JSON.stringify({
+        model: "legacy/model",
+        permission: { bash: "allow", external_directory: "allow" },
+      })
+    );
+
+    const visionRes = await analyzeDesign(refImage, visionWorkspace);
+    expect(visionRes.ok).toBe(true);
+    const observedVision = JSON.parse(
+      fs.readFileSync(path.join(visionWorkspace, "observed-at-spawn.json"), "utf8")
+    );
+    expect(observedVision.permission.bash).toBe("deny");
+    expect(observedVision.permission.external_directory).toBe("deny");
   });
 });

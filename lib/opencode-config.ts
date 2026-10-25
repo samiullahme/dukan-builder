@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+
 export type OpenCodePermission = "allow" | "deny";
 
 export type OpenCodeConfig = {
@@ -57,5 +60,24 @@ export function buildOpenCodeConfig(model: string, env: NodeJS.ProcessEnv = proc
     };
   }
 
+  return config;
+}
+
+/** Write the restrictive OpenCode config into the workspace, overwriting any existing file. */
+export function writeOpenCodeConfig(
+  workspace: string,
+  model: string,
+  env: NodeJS.ProcessEnv = process.env
+): OpenCodeConfig {
+  const config = buildOpenCodeConfig(model, env);
+  const configPath = path.join(workspace, "opencode.json");
+  try {
+    if (fs.lstatSync(configPath).isSymbolicLink()) {
+      fs.unlinkSync(configPath);
+    }
+  } catch {
+    /* file does not exist yet */
+  }
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   return config;
 }

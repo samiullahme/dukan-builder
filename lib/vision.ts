@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import { usableModels } from "./model-chain";
 import { buildAgentEnv } from "./agent-env";
+import { writeOpenCodeConfig } from "./opencode-config";
 
 const OPENCODE_BIN = process.env.OPENCODE_BIN || "/home/builder/.opencode/bin/opencode";
 // Vision-capable models tried in order — the primary one timed out on
@@ -168,12 +169,13 @@ export type VisionResult =
  */
 function runVision(args: string[], workspace: string, timeoutMs: number, model: string): Promise<{ stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve, reject) => {
+    writeOpenCodeConfig(workspace, model);
     const base = path.join(os.tmpdir(), `dukan-vision-${crypto.randomUUID()}`);
     const outPath = `${base}.out`;
     const errPath = `${base}.err`;
     const outFd = fs.openSync(outPath, "w");
     const errFd = fs.openSync(errPath, "w");
-    const child = spawn(OPENCODE_BIN, args, {
+    const child = spawn(process.env.OPENCODE_BIN || OPENCODE_BIN, args, {
       cwd: workspace,
       stdio: ["ignore", outFd, errFd],
       env: buildAgentEnv(model),
