@@ -13,7 +13,13 @@ import {
   lastAssistantText,
 } from "../lib/agent";
 import { renderBuildPrompt, renderRefinePrompt } from "../lib/prompts";
-import { analyzeDesign, paletteFromPlan, type DesignPlan } from "../lib/vision";
+import {
+  analyzeDesign,
+  hashImageBytes,
+  paletteFromPlan,
+  parseMatchingDesignPlan,
+  type DesignPlan,
+} from "../lib/vision";
 import { fetchSiteMedia, isSiteMedia, type SiteMedia } from "../lib/media";
 import { normalizeCategory } from "../lib/categories";
 import { classifyFailure, shouldRefundQuota, type FailureReason } from "../lib/failures";
@@ -324,38 +330,87 @@ export function restoreLocked(workspace: string, snap: Map<string, Buffer>): num
   return restored;
 }
 
-async function prepareDesign(
+export async function prepareDesign(
   buildId: string,
   workspace: string,
   brief: any
 ): Promise<DesignPlan | null> {
+  const designDir = path.join(workspace, "design");
+  const refs = fs.existsSync(designDir)
+    ? fs.readdirSync(designDir).filter((f) => /^reference\.(png|jpg|jpeg|webp)$/i.test(f))
+    : [];
+
   let plan: DesignPlan | null = null;
-  if (brief?.design_plan) {
+  if (refs.length) {
+    const imagePath = path.join(designDir, refs[0]);
+    const imageHash = hashImageBytes(imagePath);
+
+    // 1. Check current brief's stored design_plan
+    plan = parseMatchingDesignPlan(brief?.design_plan, imageHash);
+
+    // 2. Check workspace design/plan.json
+    const planFilePath = path.join(designDir, "plan.json");
+    if (!plan && fs.existsSync(planFilePath)) {
+      try {
+        plan = parseMatchingDesignPlan(fs.readFileSync(planFilePath, "utf8"), imageHash);
+      } catch {
+        plan = null;
+      }
+    }
+
+    // 3. Check existing briefs.design_plan rows in the database (re-uploading same image across sites/briefs)
+    if (!plan) {
+      try {
+        const rows = await db
+          .prepare(`SELECT design_plan FROM briefs WHERE design_plan IS NOT NULL AND design_plan != ''`)
+          .all<{ design_plan: string }>();
+        for (const row of rows) {
+          const matched = parseMatchingDesignPlan(row.design_plan, imageHash);
+          if (matched) {
+            plan = matched;
+            break;
+          }
+        }
+      } catch {
+        // non-fatal DB lookup failure
+      }
+    }
+
+    if (plan) {
+      await appendLog(buildId, `reusing cached design plan (image hash ${imageHash.slice(0, 12)})`);
+      if (brief?.site_id && parseMatchingDesignPlan(brief?.design_plan, imageHash) === null) {
+        await db.prepare(`UPDATE briefs SET design_plan = ? WHERE site_id = ?`).run(
+          JSON.stringify(plan),
+          brief.site_id
+        );
+      }
+    } else {
+      await appendLog(buildId, "analyzing the uploaded design reference with the vision model…");
+      const res = await analyzeDesign(imagePath, workspace);
+      if (res.ok) {
+        plan = { ...res.plan, image_hash: imageHash };
+        if (brief?.site_id) {
+          await db.prepare(`UPDATE briefs SET design_plan = ? WHERE site_id = ?`).run(
+            JSON.stringify(plan),
+            brief.site_id
+          );
+        }
+        await appendLog(
+          buildId,
+          `design plan ready: style "${plan.style || "n/a"}", ${plan.sections.length} sections, ${plan.color_palette.length} colours`
+        );
+      } else {
+        await appendLog(buildId, "vision analysis skipped: " + res.error);
+      }
+    }
+  } else if (brief?.design_plan) {
     try {
       plan = JSON.parse(brief.design_plan);
     } catch {
       plan = null;
     }
   }
-  const designDir = path.join(workspace, "design");
-  const refs = fs.existsSync(designDir)
-    ? fs.readdirSync(designDir).filter((f) => /^reference\.(png|jpg|jpeg|webp)$/i.test(f))
-    : [];
-  if (!plan && refs.length) {
-    const imagePath = path.join(designDir, refs[0]);
-    await appendLog(buildId, "analyzing the uploaded design reference with the vision model…");
-    const res = await analyzeDesign(imagePath, workspace);
-    if (res.ok) {
-      plan = res.plan;
-      await db.prepare(`UPDATE briefs SET design_plan = ? WHERE site_id = ?`).run(
-        JSON.stringify(plan),
-        brief.site_id
-      );
-      await appendLog(buildId, `design plan ready: style "${plan.style || "n/a"}", ${plan.sections.length} sections, ${plan.color_palette.length} colours`);
-    } else {
-      await appendLog(buildId, "vision analysis skipped: " + res.error);
-    }
-  }
+
   if (plan) {
     try {
       fs.mkdirSync(designDir, { recursive: true });

@@ -36,7 +36,39 @@ export type DesignPlan = {
   video_queries: string[];
   model: string;
   analyzed_at: string;
+  image_hash?: string;
 };
+
+/** Compute the SHA-256 hex digest of a reference image file or Buffer. */
+export function hashImageBytes(imagePathOrBuffer: string | Buffer): string {
+  const bytes =
+    typeof imagePathOrBuffer === "string"
+      ? fs.readFileSync(imagePathOrBuffer)
+      : imagePathOrBuffer;
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Parse a stored JSON design plan and verify its image_hash matches the expected hash. */
+export function parseMatchingDesignPlan(
+  rawJson: string | null | undefined,
+  expectedHash: string
+): DesignPlan | null {
+  if (!rawJson || !expectedHash) return null;
+  try {
+    const parsed = JSON.parse(rawJson) as DesignPlan;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.image_hash === expectedHash &&
+      typeof parsed.design_prompt === "string"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // invalid JSON
+  }
+  return null;
+}
 
 const VISION_PROMPT = `You are a senior web designer. Analyze the attached website design reference image and turn it into an implementation-ready design brief.
 
@@ -213,6 +245,17 @@ function runVision(args: string[], workspace: string, timeoutMs: number, model: 
  */
 export async function analyzeDesign(imagePath: string, workspace: string): Promise<VisionResult> {
   if (!fs.existsSync(imagePath)) return { ok: false, error: "design image missing" };
+  const imageHash = hashImageBytes(imagePath);
+  const planFilePath = path.join(workspace, "design", "plan.json");
+  if (fs.existsSync(planFilePath)) {
+    try {
+      const cached = parseMatchingDesignPlan(fs.readFileSync(planFilePath, "utf8"), imageHash);
+      if (cached) return { ok: true, plan: cached };
+    } catch {
+      // ignore unreadable cache file
+    }
+  }
+
   if (!VISION_MODELS.length) {
     return { ok: false, error: "no usable vision models — every model in OPENCODE_VISION_MODELS is missing its provider key" };
   }
@@ -269,6 +312,7 @@ export async function analyzeDesign(imagePath: string, workspace: string): Promi
         video_queries: asStringArray(candidate.video_queries, 3, 80),
         model,
         analyzed_at: new Date().toISOString(),
+        image_hash: imageHash,
       };
 
       if (!plan.design_prompt && sections.length === 0 && plan.color_palette.length === 0) {
@@ -280,6 +324,12 @@ export async function analyzeDesign(imagePath: string, workspace: string): Promi
           .filter(Boolean)
           .join(". ")
           .slice(0, 2000);
+      }
+      try {
+        fs.mkdirSync(path.dirname(planFilePath), { recursive: true });
+        fs.writeFileSync(planFilePath, JSON.stringify(plan, null, 2) + "\n");
+      } catch {
+        // non-fatal
       }
       return { ok: true, plan };
     } catch (e: any) {
