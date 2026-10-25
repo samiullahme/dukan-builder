@@ -64,11 +64,28 @@ describe("OpenCode process security", () => {
     expect(env).not.toHaveProperty("PIXABAY_API_KEY");
   });
 
-  it("denies shell and external-directory permissions", () => {
+  it("denies shell, external-directory, network, subagent, and non-workspace permissions", () => {
     const config = buildOpenCodeConfig("opencode/free-model");
 
-    expect(config.permission.bash).toBe("deny");
-    expect(config.permission.external_directory).toBe("deny");
+    expect(config.permission).toEqual({
+      read: "allow",
+      edit: "allow",
+      glob: "allow",
+      grep: "allow",
+      list: "allow",
+      bash: "deny",
+      task: "deny",
+      external_directory: "deny",
+      webfetch: "deny",
+      websearch: "deny",
+      codesearch: "deny",
+      todowrite: "deny",
+      todoread: "deny",
+      question: "deny",
+      lsp: "deny",
+      doom_loop: "deny",
+      skill: "deny",
+    });
   });
 
   it("writes restrictive opencode.json before spawning opencode serve and opencode run, overwriting bash allow", async () => {

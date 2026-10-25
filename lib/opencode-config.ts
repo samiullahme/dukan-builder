@@ -12,7 +12,17 @@ export type OpenCodeConfig = {
     grep: OpenCodePermission;
     list: OpenCodePermission;
     bash: OpenCodePermission;
+    task: OpenCodePermission;
     external_directory: OpenCodePermission;
+    webfetch: OpenCodePermission;
+    websearch: OpenCodePermission;
+    codesearch: OpenCodePermission;
+    todowrite: OpenCodePermission;
+    todoread: OpenCodePermission;
+    question: OpenCodePermission;
+    lsp: OpenCodePermission;
+    doom_loop: OpenCodePermission;
+    skill: OpenCodePermission;
   };
   provider?: Record<string, unknown>;
 };
@@ -27,7 +37,17 @@ export function buildOpenCodeConfig(model: string, env: NodeJS.ProcessEnv = proc
       grep: "allow",
       list: "allow",
       bash: "deny",
+      task: "deny",
       external_directory: "deny",
+      webfetch: "deny",
+      websearch: "deny",
+      codesearch: "deny",
+      todowrite: "deny",
+      todoread: "deny",
+      question: "deny",
+      lsp: "deny",
+      doom_loop: "deny",
+      skill: "deny",
     },
   };
 
