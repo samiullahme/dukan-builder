@@ -592,12 +592,14 @@ function recoverOrphanedBuilds(): void {
 type QaResult = { ok: boolean; errors: string[]; warnings: number; outDir: string };
 
 async function runSiteQa(workspace: string, buildId: string): Promise<QaResult> {
-  const outDir = path.join("/opt/qa", path.basename(workspace), buildId);
+  const qaOutRoot = process.env.QA_OUT_ROOT || "/opt/qa";
+  const qaScript = process.env.QA_SCRIPT || QA_SCRIPT;
+  const outDir = path.join(qaOutRoot, path.basename(workspace), buildId);
   // Async on purpose: the QA browser calls /_api on this same app, so a
   // synchronous run blocks the event loop and every owner/customer API check
   // hangs until QA exits.
   await new Promise<void>((resolve) => {
-    const child = spawn(process.execPath, [QA_SCRIPT, workspace, "--out", outDir], {
+    const child = spawn(process.execPath, [qaScript, workspace, "--out", outDir], {
       env: { ...process.env, HOME: process.env.HOME || "/home/builder" },
       stdio: "ignore",
     });
@@ -687,7 +689,7 @@ async function processRevert(buildId: string, site: any, build: any, workspace: 
   await db.prepare(`UPDATE sites SET status = ? WHERE id = ?`).run(wasPublished ? "published" : "ready", site.id);
 }
 
-async function processBuild(buildId: string): Promise<void> {
+export async function processBuild(buildId: string): Promise<void> {
   // Atomic claim: only one worker can take a queued build.
   const claimed = await db
     .prepare(`UPDATE builds SET status = 'building', started_at = now() WHERE id = ? AND status = 'queued'`)
@@ -716,7 +718,7 @@ async function processBuild(buildId: string): Promise<void> {
       .prepare(`SELECT builds_used, builds_allowed FROM quota WHERE user_id = ?`)
       .get<{ builds_used: number; builds_allowed: number }>(site.user_id);
 
-    const workspace = path.join(TENANTS_ROOT, site.user_id, site.slug);
+    const workspace = path.join(process.env.TENANTS_ROOT || TENANTS_ROOT, site.user_id, site.slug);
     if (!fs.existsSync(path.join(workspace, "index.html"))) {
       await failBuild(buildId, site.id, "workspace missing: " + workspace, {
         userId,
