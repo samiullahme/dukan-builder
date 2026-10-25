@@ -367,8 +367,30 @@ async function prepareDesign(
   return plan;
 }
 
+export const MEDIA_DOWNLOAD_CONCURRENCY = 4;
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: limit }, async () => {
+    while (true) {
+      const idx = nextIndex++;
+      if (idx >= items.length) break;
+      results[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /** Write the pre-fetched media (and design palette) into site.json. */
-function mergeMedia(
+export function mergeMedia(
   workspace: string,
   site: any,
   media: SiteMedia | null,
@@ -435,8 +457,11 @@ function localMediaOk(p: string): boolean {
  * a rebuilt-from-scratch workspace can re-download. Slots whose download
  * fails fall back down the hero -> about -> gallery chain, and a merge with
  * almost nothing localized signals expired links to the caller.
+ *
+ * Hero, about, and gallery images download in parallel with a concurrency
+ * limit of at most 4 while preserving gallery order in site.json.
  */
-async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteMedia> {
+export async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteMedia> {
   const dir = path.join(workspace, "media");
   fs.mkdirSync(dir, { recursive: true });
   const ext = (u: string, fallback: string) => {
@@ -451,13 +476,17 @@ async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteM
     return (await downloadMediaFile(url, dest)) ? "/media/" + name : "";
   };
 
-  const hero = await grab("hero", media.hero_image, ".jpg");
-  const about = await grab("about", media.about_image, ".jpg");
-  const gallery: string[] = [];
-  for (let i = 0; i < media.gallery.length; i++) {
-    const local = await grab("g" + i, media.gallery[i], ".jpg");
-    if (local) gallery.push(local);
-  }
+  const imageTasks = [
+    { slot: "hero", url: media.hero_image },
+    { slot: "about", url: media.about_image },
+    ...media.gallery.map((url, i) => ({ slot: "g" + i, url })),
+  ];
+  const [hero, about, ...rawGallery] = await mapWithConcurrency(
+    imageTasks,
+    MEDIA_DOWNLOAD_CONCURRENCY,
+    (task) => grab(task.slot, task.url, ".jpg")
+  );
+  const gallery = rawGallery.filter(Boolean);
   const video = await grab("video", media.hero_video, ".mp4");
 
   const pool = [hero, about, ...gallery].filter(Boolean);
@@ -469,7 +498,7 @@ async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteM
   return out;
 }
 
-function localizedImageCount(media: SiteMedia): number {
+export function localizedImageCount(media: SiteMedia): number {
   return (media.hero_image ? 1 : 0) + media.gallery.length;
 }
 
