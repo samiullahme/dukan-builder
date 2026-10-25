@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { getUser } from "@/lib/auth";
 import { getSiteForUser } from "@/lib/site";
+import { sanitizeWorkspace } from "@/lib/workspace-security";
 import { execFileSync } from "child_process";
 
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
@@ -21,11 +22,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   const workspace = path.join(TENANTS_ROOT, site.user_id, site.slug);
-  if (!fs.existsSync(path.join(workspace, "index.html"))) {
+  if (!fs.existsSync(workspace)) {
     return NextResponse.json({ error: "Workspace files are missing." }, { status: 500 });
   }
 
   try {
+    sanitizeWorkspace(workspace);
+    if (!fs.existsSync(path.join(workspace, "index.html"))) {
+      return NextResponse.json({ error: "Workspace files are missing." }, { status: 500 });
+    }
     // Update the builder-owned symlink that Caddy's /opt/preview-current follows.
     fs.mkdirSync(path.dirname(PREVIEW_LINK), { recursive: true });
     execFileSync("ln", ["-sfn", workspace, PREVIEW_LINK]);

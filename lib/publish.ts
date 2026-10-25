@@ -3,21 +3,25 @@ import path from "path";
 import crypto from "crypto";
 import { chmodRecursive, copyWorkspaceNoSymlinks, sanitizeWorkspace } from "./workspace-security";
 
-const PUBLISHED_ROOT = process.env.PUBLISHED_ROOT || "/opt/www/published";
-const PUBLISH_DROPS = ["opencode.json", "AGENTS.md", "design", ".history"];
+const DEFAULT_PUBLISHED_ROOT = "/opt/www/published";
+export const PUBLISH_DROPS = ["opencode.json", "AGENTS.md", "design", ".history"] as const;
 
 /** Copy a workspace into the published root with an atomic staging swap.
  * Returns the final published directory. */
-export function publishWorkspace(workspace: string, slug: string): string {
+export function publishWorkspace(
+  workspace: string,
+  slug: string,
+  publishedRoot = process.env.PUBLISHED_ROOT || DEFAULT_PUBLISHED_ROOT
+): string {
   if (!/^[a-z0-9-]+$/.test(slug)) throw new Error("invalid site slug");
   sanitizeWorkspace(workspace);
   if (!fs.existsSync(path.join(workspace, "index.html"))) {
     throw new Error("workspace files are missing");
   }
-  const staging = path.join(PUBLISHED_ROOT, `.tmp-${slug}-${crypto.randomBytes(6).toString("hex")}`);
-  const target = path.join(PUBLISHED_ROOT, slug);
+  const staging = path.join(publishedRoot, `.tmp-${slug}-${crypto.randomBytes(6).toString("hex")}`);
+  const target = path.join(publishedRoot, slug);
   try {
-    fs.mkdirSync(PUBLISHED_ROOT, { recursive: true });
+    fs.mkdirSync(publishedRoot, { recursive: true });
     copyWorkspaceNoSymlinks(workspace, staging);
     for (const drop of PUBLISH_DROPS) {
       fs.rmSync(path.join(staging, drop), { recursive: true, force: true });
