@@ -67,7 +67,7 @@ export default async function SitePage({ params }: { params: Promise<{ id: strin
 
       <div className="mt-6 grid gap-5 lg:grid-cols-5">
         <div className="space-y-5 lg:col-span-2">
-          <BuildPanel siteId={site.id} siteStatus={site.status} quotaLeft={quotaLeft} />
+          <BuildPanel siteId={site.id} siteStatus={site.status} quotaLeft={quotaLeft} isAdmin={user.is_admin === 1} />
 
           <OwnerAccess siteId={site.id} enabled={totp.enabled} unlockedUntil={unlockedUntil} />
 

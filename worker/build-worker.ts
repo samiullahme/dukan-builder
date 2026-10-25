@@ -596,6 +596,7 @@ async function processBuild(buildId: string): Promise<void> {
     }
     let assistantReply = turn.assistantReply;
 
+    await appendStage(buildId, "wiring");
     // Locked pages/scripts (and opencode.json) are restored after every turn.
     const restored = restoreLocked(workspace, lockedSnapshot);
     if (restored) await appendLog(buildId, `restored ${restored} locked file(s) changed by the agent`);

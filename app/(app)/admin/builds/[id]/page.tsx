@@ -12,10 +12,24 @@ import { BuildStatusBadge, FailureBadge, KindBadge, ReviewedBadge } from "@/comp
 import { requireAdmin } from "@/lib/auth";
 import { getAdminBuild } from "@/lib/admin";
 import { cancelBuild, markBuildReviewed, retryBuild } from "@/lib/admin-actions";
-import { parseBuildStages, stageDurations, FAILURE_LABELS, type FailureReason } from "@/lib/failures";
+import {
+  deriveBuildProgress,
+  extractAdminTechnicalSummary,
+  parseBuildStages,
+  stageDurations,
+  FAILURE_LABELS,
+  type CustomerStageState,
+  type FailureReason,
+} from "@/lib/failures";
 import { formatDateTime, formatDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+function stateBadgeClass(state: CustomerStageState): string {
+  if (state === "done") return "bg-emerald-100 text-emerald-800";
+  if (state === "doing") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-500";
+}
 
 export default async function AdminBuildDetail({ params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
@@ -27,6 +41,9 @@ export default async function AdminBuildDetail({ params }: { params: Promise<{ i
   const finishedAt = build.finished_at;
   const durations = stageDurations(stages, finishedAt);
   const totalSeconds = durations.reduce((a, d) => a + d.seconds, 0);
+
+  const progress = deriveBuildProgress(build.status, build.log ?? "", totalSeconds);
+  const technical = extractAdminTechnicalSummary(build.log ?? "");
 
   async function retry(fd: FormData) {
     "use server";
@@ -117,7 +134,7 @@ export default async function AdminBuildDetail({ params }: { params: Promise<{ i
                 Trigger: <span className="font-medium">“{build.input}”</span> —{" "}
               </>
             ) : null}
-            the timeline below shows the last stage the build reached. Open the log to see exactly where it stopped.
+            the checklist below shows the last stage the build reached. Open the details section to read the raw log.
           </AlertDescription>
         </Alert>
       )}
@@ -140,31 +157,107 @@ export default async function AdminBuildDetail({ params }: { params: Promise<{ i
 
       <Card className="mt-4">
         <CardContent className="p-5">
-          <h2 className="font-display text-lg font-bold">Where it went</h2>
-          <div className="mt-4">
-            <StageTimeline stages={stages} durations={durations} totalSeconds={totalSeconds} />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-display text-lg font-bold">Build progress</h2>
+              <p className="mt-1 text-sm text-slate-600">{progress.currentSentence}</p>
+              {progress.estimatedRemaining && (
+                <p className="mt-0.5 text-xs text-slate-500">{progress.estimatedRemaining}</p>
+              )}
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              {progress.remainingCount} remaining
+            </span>
           </div>
+
+          <ol className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+            {progress.stages.map((stage) => (
+              <li
+                key={stage.number}
+                className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3.5 py-2 text-sm"
+              >
+                <span
+                  className={
+                    stage.state === "done"
+                      ? "text-slate-700"
+                      : stage.state === "doing"
+                        ? "font-semibold text-slate-900"
+                        : "text-slate-400"
+                  }
+                >
+                  {stage.number}. {stage.label}
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${stateBadgeClass(stage.state)}`}
+                >
+                  {stage.state}
+                </span>
+              </li>
+            ))}
+          </ol>
         </CardContent>
       </Card>
 
-      <div className="mt-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-display text-lg font-bold">Full build log</h2>
-          <span className="inline-flex items-center gap-2 text-xs text-slate-400">
-            <ReviewedBadge reviewed={build.reviewed} />
-          </span>
-        </div>
-        <Separator className="my-3" />
-        {build.log ? (
-          <LogViewer log={build.log} />
-        ) : (
-          <Card>
-            <CardContent className="p-6 text-sm text-slate-400">
-              No log recorded for this build yet{build.status === "queued" ? " — it has not been picked up by the worker." : "."}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      <Card className="mt-4">
+        <CardContent className="p-5">
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-display text-base font-bold text-slate-800 hover:text-slate-950">
+              <span>Details (models, raw logs &amp; tokens)</span>
+              <span className="inline-flex items-center gap-2 text-xs font-normal text-slate-400">
+                <ReviewedBadge reviewed={build.reviewed} />
+                <span className="rounded-md border border-slate-200 px-2 py-0.5 font-sans text-xs font-medium text-slate-600">
+                  Toggle details
+                </span>
+              </span>
+            </summary>
+
+            <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+              {(technical.chain || technical.modelsUsed.length > 0 || technical.tokenNotes.length > 0) && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-700 space-y-1">
+                  {technical.chain && (
+                    <p>
+                      <span className="font-semibold text-slate-500">Model chain:</span>{" "}
+                      <span className="font-mono">{technical.chain}</span>
+                    </p>
+                  )}
+                  {technical.modelsUsed.length > 0 && (
+                    <p>
+                      <span className="font-semibold text-slate-500">Model(s) invoked:</span>{" "}
+                      <span className="font-mono">{technical.modelsUsed.join(", ")}</span>
+                    </p>
+                  )}
+                  {technical.tokenNotes.length > 0 && (
+                    <p>
+                      <span className="font-semibold text-slate-500">Tokens:</span>{" "}
+                      <span className="font-mono">{technical.tokenNotes.join(", ")}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700">Stage timing</h3>
+                <div className="mt-2">
+                  <StageTimeline stages={stages} durations={durations} totalSeconds={totalSeconds} />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">Raw build log</h3>
+                {build.log ? (
+                  <LogViewer log={build.log} />
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    No log recorded for this build yet{build.status === "queued" ? " — it has not been picked up by the worker." : "."}
+                  </p>
+                )}
+              </div>
+            </div>
+          </details>
+        </CardContent>
+      </Card>
 
       <div className="mt-6 flex flex-wrap gap-2 text-xs text-slate-400">
         <Badge variant="outline">build {id}</Badge>
