@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%274%27 fill=%27%230b3d2e%27/%3E%3C/svg%3E" />
+  <meta name="dukan-site" content="__SITE_SLUG__" />
+  <title data-title-template="Owner sign-in — {name}">Owner sign-in — Your Business Name</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body class="auth-page">
+  <div class="auth-shell">
+    <a class="auth-brand" href="index.html"><span class="brand-dot" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
+
+    <div class="auth-card">
+      <p class="auth-kicker">Owner access</p>
+      <h1>Owner sign-in</h1>
+      <p>Use the username and password provided with your website.</p>
+
+      <form id="admin-login-form" novalidate>
+        <div class="field">
+          <label for="admin-username">Username</label>
+          <input id="admin-username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+        </div>
+        <div class="field">
+          <label for="admin-password">Password</label>
+          <input id="admin-password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+        <p class="form-note" id="admin-login-status" role="status"></p>
+      </form>
+    </div>
+
+    <div class="auth-links">
+      <a href="index.html">Back to the site</a>
+      <a href="login.html">Customer sign-in</a>
+    </div>
+  </div>
+
+  <script src="theme.js"></script>
+  <script src="admin-login.js"></script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%274%27 fill=%27%230b3d2e%27/%3E%3C/svg%3E" />
+  <meta name="dukan-site" content="__SITE_SLUG__" />
+  <title data-title-template="Owner dashboard — {name}">Owner dashboard — Your Business Name</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <header class="app-bar">
+    <div class="app-bar-inner">
+      <a class="app-brand" href="index.html"><span class="brand-dot" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
+      <span class="app-role">Owner</span>
+      <div class="app-bar-actions">
+        <a class="app-link" href="index.html">View site</a>
+        <a class="app-link" href="dashboard.html">My account</a>
+        <span class="app-user" data-admin-name></span>
+        <button class="mini-btn js-logout" type="button">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="app-head">
+      <div>
+        <p class="app-kicker">Owner dashboard</p>
+        <h1>Requests &amp; bookings</h1>
+        <p class="app-muted">Everything customers submitted from the website, in one place.</p>
+      </div>
+      <div class="app-head-actions">
+        <button class="btn btn-quiet" id="export-csv" type="button">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="notice">
+      <span>Signed in as <strong data-admin-name></strong> · owner access</span>
+      <span class="spacer"></span>
+      <button class="mini-btn" id="clear-samples" type="button">Clear sample data</button>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><span>Total requests</span><strong data-stat="total">0</strong></div>
+      <div class="stat-card"><span>New</span><strong data-stat="new">0</strong></div>
+      <div class="stat-card"><span>Bookings</span><strong data-stat="bookings">0</strong></div>
+      <div class="stat-card"><span>Subscribers</span><strong data-stat="subscribers">0</strong></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="filter-tabs" role="group" aria-label="Filter requests by type">
+        <button class="filter-tab is-active" type="button" data-filter="all">All</button>
+        <button class="filter-tab" type="button" data-filter="booking">Bookings</button>
+        <button class="filter-tab" type="button" data-filter="inquiry">Enquiries</button>
+        <button class="filter-tab" type="button" data-filter="sample">Sample</button>
+      </div>
+      <div class="toolbar-search">
+        <label class="sr-only" for="admin-search">Search requests</label>
+        <input id="admin-search" type="search" placeholder="Search name, email, reference…" />
+      </div>
+      <label class="sr-only" for="status-filter">Filter by status</label>
+      <select id="status-filter">
+        <option value="all">All statuses</option>
+        <option value="new">New</option>
+        <option value="confirmed">Confirmed</option>
+        <option value="completed">Completed</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="handled">Handled</option>
+        <option value="closed">Closed</option>
+      </select>
+      <span class="result-count" id="request-count"></span>
+    </div>
+
+    <div class="panel">
+      <div class="admin-head">
+        <span>Request</span>
+        <span>Summary</span>
+        <span>Date</span>
+        <span>Status</span>
+        <span>Contact</span>
+      </div>
+      <div id="admin-requests"></div>
+    </div>
+    <div class="empty" id="admin-empty" hidden>No requests match these filters yet.</div>
+
+    <div class="section-headline">
+      <h2>Newsletter subscribers</h2>
+    </div>
+    <div class="panel" id="subscriber-list"></div>
+    <div class="empty" id="subscribers-empty" hidden>No subscribers yet. The newsletter form is in the website footer.</div>
+  </main>
+
+  <script src="theme.js"></script>
+  <script src="categories.js"></script>
+  <script src="store.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

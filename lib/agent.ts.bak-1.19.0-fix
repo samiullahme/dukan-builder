@@ -1,0 +1,234 @@
+import { spawn, ChildProcess } from "child_process";
+import crypto from "crypto";
+
+/**
+ * Thin client for `opencode serve` (verified against opencode 1.19.0's live
+ * OpenAPI at GET /doc):
+ *   POST /api/session                       -> create session {data:{id}}
+ *   POST /api/session/{id}/prompt_async     -> {agent, parts:[{type:"text",text}]}
+ *   POST /api/session/{id}/abort
+ *   GET  /api/event                         -> SSE; completion = session.idle
+ *   POST /api/session/{id}/permission/{rid}/reply -> {reply:"allow"|"deny"}
+ * Auth: HTTP Basic (username "opencode") when OPENCODE_SERVER_PASSWORD is set.
+ */
+
+const OPENCODE_BIN = process.env.OPENCODE_BIN || "/home/builder/.opencode/bin/opencode";
+
+export interface ServeHandle {
+  proc: ChildProcess;
+  port: number;
+  username: string;
+  password: string;
+}
+
+function basicAuth(h: ServeHandle): string {
+  return "Basic " + Buffer.from(`${h.username}:${h.password}`).toString("base64");
+}
+
+export async function startServe(workspaceDir: string): Promise<ServeHandle> {
+  const password = crypto.randomBytes(24).toString("hex");
+  const proc = spawn(OPENCODE_BIN, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
+    cwd: workspaceDir,
+    env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const port = await new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("opencode serve did not report a port within 60s"));
+    }, 60000);
+    let out = "";
+    const onData = (d: Buffer) => {
+      out += d.toString();
+      const m = out.match(/listening on http:\/\/127\.0\.0\.1:(\d+)/);
+      if (m) {
+        clearTimeout(timer);
+        cleanup();
+        resolve(parseInt(m[1], 10));
+      }
+    };
+    const onExit = (code: number | null) => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error(`opencode serve exited early (code ${code}): ${out.slice(-600)}`));
+    };
+    const cleanup = () => {
+      proc.stdout?.off("data", onData);
+      proc.stderr?.off("data", onData);
+      proc.off("exit", onExit);
+    };
+    // The "listening on" line goes to stdout (not stderr) in opencode 1.19.0.
+    proc.stdout?.on("data", onData);
+    proc.stderr?.on("data", onData);
+    proc.on("exit", onExit);
+  });
+
+  return { proc, port, username: "opencode", password };
+}
+
+async function ocJson(h: ServeHandle, path: string, init: RequestInit = {}): Promise<any> {
+  const res = await fetch(`http://127.0.0.1:${h.port}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: basicAuth(h),
+      ...((init.headers as Record<string, string>) || {}),
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`opencode ${init.method || "GET"} ${path} -> ${res.status}: ${text.slice(0, 300)}`);
+  if (text.trimStart().startsWith("<!doctype")) {
+    throw new Error(`opencode ${init.method || "GET"} ${path} -> served SPA HTML (wrong path prefix?)`);
+  }
+  return text ? JSON.parse(text) : null;
+}
+
+export async function createSession(h: ServeHandle, title: string): Promise<string> {
+  const json = await ocJson(h, "/api/session", { method: "POST", body: JSON.stringify({ title }) });
+  return json.data.id as string;
+}
+
+export async function promptAsync(h: ServeHandle, sessionId: string, text: string, agent = "build"): Promise<void> {
+  // NOTE: prompt_async lives at /session (no /api prefix) in opencode 1.19.0;
+  // the /api variant serves the SPA shell.
+  await ocJson(h, `/session/${sessionId}/prompt_async`, {
+    method: "POST",
+    body: JSON.stringify({ agent, parts: [{ type: "text", text }] }),
+  });
+}
+
+export async function abortSession(h: ServeHandle, sessionId: string): Promise<void> {
+  try {
+    await ocJson(h, `/session/${sessionId}/abort`, { method: "POST" });
+  } catch {
+    /* best effort */
+  }
+}
+
+/** Fetch the last assistant text reply in a session (best effort, shape-defensive). */
+export async function lastAssistantText(h: ServeHandle, sessionId: string): Promise<string | null> {
+  try {
+    const json = await ocJson(h, `/api/session/${sessionId}/message`);
+    const messages: any[] = json.data || json || [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      const role = m.role || m.info?.role;
+      if (role !== "assistant") continue;
+      const parts: any[] = m.parts || m.info?.parts || [];
+      const text = parts
+        .filter((p: any) => p.type === "text")
+        .map((p: any) => p.text || p.data?.text || "")
+        .join("\n")
+        .trim();
+      if (text) return text.slice(0, 2000);
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export type IdleResult = "idle" | "error" | "timeout";
+
+/**
+ * Wait for the session turn to finish via the SSE event stream.
+ * Auto-replies to permission requests: allow everything except
+ * external_directory (which is always denied).
+ */
+export async function waitForIdle(
+  h: ServeHandle,
+  sessionId: string,
+  timeoutMs: number,
+  onEvent?: (type: string, detail: string) => void
+): Promise<IdleResult> {
+  const res = await fetch(`http://127.0.0.1:${h.port}/api/event`, {
+    headers: { Authorization: basicAuth(h) },
+  });
+  if (!res.ok || !res.body) throw new Error("could not open opencode event stream");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        for (const line of chunk.split("\n")) {
+          const t = line.trim();
+          if (!t.startsWith("data:")) continue;
+          let evt: any;
+          try {
+            evt = JSON.parse(t.slice(5).trim());
+          } catch {
+            continue;
+          }
+          if (evt?.properties?.sessionID !== sessionId) continue;
+          if (evt.type === "session.idle") return "idle";
+          if (evt.type === "session.error") {
+            onEvent?.("error", JSON.stringify(evt.properties).slice(0, 300));
+            return "error";
+          }
+          if (evt.type === "permission.v2.asked" || evt.type === "permission.asked") {
+            await autoReplyPermission(h, sessionId, evt.properties, onEvent);
+          }
+        }
+      }
+    }
+    return "timeout";
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function autoReplyPermission(
+  h: ServeHandle,
+  sessionId: string,
+  props: any,
+  onEvent?: (type: string, detail: string) => void
+): Promise<void> {
+  const requestId: string = props.id;
+  const action: string = String(props.action || "");
+  // Deny anything that reaches outside the project; allow the rest.
+  const reply = action === "external_directory" ? "deny" : "allow";
+  onEvent?.("permission", `${action} -> ${reply}`);
+  try {
+    await ocJson(h, `/api/session/${sessionId}/permission/${requestId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ reply }),
+    });
+  } catch (e: any) {
+    onEvent?.("permission", "reply failed: " + e.message);
+  }
+}
+
+export async function stopServe(h: ServeHandle): Promise<void> {
+  try {
+    h.proc.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(() => {
+        try {
+          h.proc.kill("SIGKILL");
+        } catch {
+          /* ignore */
+        }
+        resolve();
+      }, 5000);
+      h.proc.once("exit", () => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+  } catch {
+    /* ignore */
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "slug": "__SITE_SLUG__",
+  "business_name": "Your Business Name",
+  "tagline": "A short line about what makes your shop special.",
+  "category": "other",
+  "phone": "0300 0000000",
+  "email": "",
+  "address": "Your street, Your city",
+  "hours": "Mon–Sat, 9am – 9pm",
+  "hero_image": "",
+  "hero_video": "",
+  "about_image": "",
+  "gallery": [],
+  "palette": {
+    "primary": "#0b3d2e",
+    "accent": "#e0aa33",
+    "bg": "#faf7f1"
+  },
+  "services": [
+    {
+      "name": "Service one",
+      "desc": "A short, honest description of what you offer.",
+      "price": ""
+    },
+    {
+      "name": "Service two",
+      "desc": "A short, honest description of what you offer.",
+      "price": ""
+    },
+    {
+      "name": "Service three",
+      "desc": "A short, honest description of what you offer.",
+      "price": ""
+    }
+  ],
+  "about": "Tell your customers who you are, how long you have been around, and why they should choose you. Two or three honest sentences beat a wall of marketing speak.",
+  "media_credits": []
+}

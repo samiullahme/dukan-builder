@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%274%27 fill=%27%230b3d2e%27/%3E%3C/svg%3E" />
+  <meta name="dukan-site" content="__SITE_SLUG__" />
+  <title data-title-template="Sign in — {name}">Sign in — Your Business Name</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body class="auth-page">
+  <div class="auth-shell">
+    <a class="auth-brand" href="index.html"><span class="brand-dot" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
+
+    <div class="auth-card">
+      <p class="auth-kicker">Account access</p>
+      <h1>Welcome back</h1>
+      <p>Sign in to follow your requests and bookings.</p>
+
+      <div class="auth-tabs" role="tablist" aria-label="Account access">
+        <button class="auth-tab is-active" type="button" role="tab" aria-selected="true" data-mode="login">Sign in</button>
+        <button class="auth-tab" type="button" role="tab" aria-selected="false" data-mode="register">Create account</button>
+      </div>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input id="login-email" name="email" type="email" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="login-password">Password</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+        <p class="form-note" id="auth-status" role="status"></p>
+      </form>
+
+      <form id="register-form" hidden novalidate>
+        <div class="field">
+          <label for="reg-name">Your name</label>
+          <input id="reg-name" name="name" type="text" autocomplete="name" required />
+        </div>
+        <div class="field">
+          <label for="reg-email">Email</label>
+          <input id="reg-email" name="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="field">
+          <label for="reg-phone">Phone (optional)</label>
+          <input id="reg-phone" name="phone" type="tel" autocomplete="tel" />
+        </div>
+        <div class="field">
+          <label for="reg-password">Password</label>
+          <input id="reg-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+        </div>
+        <div class="field">
+          <label for="reg-confirm">Confirm password</label>
+          <input id="reg-confirm" name="confirm" type="password" autocomplete="new-password" minlength="6" required />
+        </div>
+        <button class="btn btn-primary" type="submit">Create my account</button>
+        <p class="form-note" id="auth-status-register" role="status"></p>
+      </form>
+
+    </div>
+
+    <div class="auth-links">
+      <a href="index.html">Back to the site</a>
+      <a href="contact.html">Contact</a>
+    </div>
+  </div>
+
+  <script src="theme.js"></script>
+  <script src="store.js"></script>
+  <script src="auth.js"></script>
+</body>
+</html>

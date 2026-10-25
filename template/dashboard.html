@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%274%27 fill=%27%230b3d2e%27/%3E%3C/svg%3E" />
+  <meta name="dukan-site" content="__SITE_SLUG__" />
+  <title data-title-template="My account — {name}">My account — Your Business Name</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <header class="app-bar">
+    <div class="app-bar-inner">
+      <a class="app-brand" href="index.html"><span class="brand-dot" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
+      <span class="app-role">My account</span>
+      <div class="app-bar-actions">
+        <a class="app-link" href="index.html">View site</a>
+        <span class="app-user" data-user-name></span>
+        <button class="mini-btn js-logout" type="button">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="app-head">
+      <div>
+        <p class="app-kicker">Customer dashboard</p>
+        <h1>Welcome, <span data-user-name>there</span></h1>
+        <p class="app-muted">Track what you have sent us and update your contact details.</p>
+      </div>
+      <div class="app-head-actions">
+        <a class="btn btn-primary" href="contact.html#book">Make a new request</a>
+      </div>
+    </div>
+
+    <div class="notice">
+      <span><strong>Beta.</strong> Requests you send go straight to the business. Your sign-in details are saved in this browser only.</span>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><span>Total requests</span><strong data-stat="total">0</strong></div>
+      <div class="stat-card"><span>Active</span><strong data-stat="active">0</strong></div>
+      <div class="stat-card"><span>Cancelled</span><strong data-stat="cancelled">0</strong></div>
+    </div>
+
+    <div class="dash-layout">
+      <section>
+        <div class="section-headline">
+          <h2>My requests</h2>
+          <a href="contact.html">Send another</a>
+        </div>
+        <div class="stack" id="my-requests"></div>
+        <div class="empty" id="requests-empty" hidden>
+          Nothing here yet. <a href="contact.html#book">Send your first request</a> and it will appear here.
+        </div>
+      </section>
+
+      <aside class="dash-card">
+        <h2>My details</h2>
+        <p>Keep your phone number up to date so the business can reach you.</p>
+        <form id="profile-form" novalidate>
+          <div class="field">
+            <label for="profile-name">Name</label>
+            <input id="profile-name" name="name" type="text" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label for="profile-email">Email</label>
+            <input id="profile-email" name="email" type="email" readonly />
+          </div>
+          <div class="field">
+            <label for="profile-phone">Phone</label>
+            <input id="profile-phone" name="phone" type="tel" autocomplete="tel" />
+          </div>
+          <button class="btn btn-primary" type="submit">Save changes</button>
+          <p class="form-note" id="profile-status" role="status"></p>
+        </form>
+      </aside>
+    </div>
+  </main>
+
+  <script src="theme.js"></script>
+  <script src="categories.js"></script>
+  <script src="store.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

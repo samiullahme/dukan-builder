@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%274%27 fill=%27%230b3d2e%27/%3E%3C/svg%3E" />
+  <meta name="dukan-site" content="__SITE_SLUG__" />
+  <title data-title-template="Contact — {name}">Contact — Your Business Name</title>
+  <meta name="description" data-slot-attr="content:tagline" content="A short line about what makes your shop special." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="pages.css" />
+</head>
+<body>
+  <!-- chrome:header:start -->
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">Menu</button>
+      <nav class="nav-links" id="nav-links" aria-label="Main navigation">
+        <a href="index.html">Home</a>
+        <a href="services.html">Services</a>
+        <a href="gallery.html">Gallery</a>
+        <a href="about.html">About</a>
+        <a href="contact.html" aria-current="page">Contact</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="nav-auth js-auth-link" href="login.html">Sign in</a>
+        <a class="btn btn-small" href="contact.html#book" data-book-label>Book now</a>
+      </div>
+    </div>
+  </header>
+  <!-- chrome:header:end -->
+
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow">Get in touch</p>
+      <h1>We are ready when you are</h1>
+      <p>Send a request below, or reach us directly by phone or WhatsApp.</p>
+    </div>
+  </section>
+
+  <section class="page-section" id="book">
+    <div class="wrap contact-layout">
+      <div class="stack">
+        <form class="form-card" id="booking-form" novalidate>
+          <h2 data-booking-title>Request a booking</h2>
+          <p data-booking-blurb>Tell us what you need and when. We will confirm the details.</p>
+          <div class="form-grid" data-booking-fields></div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="bk-name">Your name *</label>
+              <input id="bk-name" name="name" type="text" autocomplete="name" required />
+            </div>
+            <div class="form-field">
+              <label for="bk-phone">Phone *</label>
+              <input id="bk-phone" name="phone" type="tel" autocomplete="tel" required />
+            </div>
+            <div class="form-field full">
+              <label for="bk-email">Email *</label>
+              <input id="bk-email" name="email" type="email" autocomplete="email" required />
+            </div>
+            <div class="form-field full">
+              <label for="bk-message">Anything else we should know?</label>
+              <textarea id="bk-message" name="message" rows="3"></textarea>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn" type="submit">Send request</button>
+            <span class="muted">We reply by phone or WhatsApp.</span>
+          </div>
+          <p class="form-note" data-form-status role="status"></p>
+        </form>
+
+        <div class="form-success" id="booking-success" hidden>
+          <h2>Request received</h2>
+          <p>Your reference is</p>
+          <span class="ref" data-success-ref>—</span>
+          <p>The business will confirm the details with you. You can follow the status in your account.</p>
+          <div class="form-actions">
+            <a class="btn" data-account-link href="login.html?next=dashboard.html">View my request</a>
+            <a class="text-link" href="index.html">Back to home</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <h3>Contact details</h3>
+          <div class="info-list mt">
+            <div class="info-item">
+              <span class="info-badge" aria-hidden="true">01</span>
+              <div>
+                <h3>Call</h3>
+                <p><a data-slot-href="tel:phone" href="tel:03000000000"><span data-slot="phone">0300 0000000</span></a></p>
+              </div>
+            </div>
+            <div class="info-item">
+              <span class="info-badge" aria-hidden="true">02</span>
+              <div>
+                <h3>WhatsApp</h3>
+                <p><a data-slot-href="wa:phone" href="#">Message us</a></p>
+              </div>
+            </div>
+            <div class="info-item">
+              <span class="info-badge" aria-hidden="true">03</span>
+              <div>
+                <h3>Visit</h3>
+                <p data-slot="address">Your street, Your city</p>
+              </div>
+            </div>
+            <div class="info-item">
+              <span class="info-badge" aria-hidden="true">04</span>
+              <div>
+                <h3>Hours</h3>
+                <p data-slot="hours">Mon–Sat, 9am – 9pm</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <form class="form-card" id="inquiry-form" novalidate>
+          <h2>Send an enquiry</h2>
+          <p>Just have a question? Write to us and we will get back to you.</p>
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="inq-name">Your name *</label>
+              <input id="inq-name" name="name" type="text" autocomplete="name" required />
+            </div>
+            <div class="form-field">
+              <label for="inq-phone">Phone</label>
+              <input id="inq-phone" name="phone" type="tel" autocomplete="tel" />
+            </div>
+            <div class="form-field full">
+              <label for="inq-email">Email *</label>
+              <input id="inq-email" name="email" type="email" autocomplete="email" required />
+            </div>
+            <div class="form-field full">
+              <label for="inq-message">Your message *</label>
+              <textarea id="inq-message" name="message" rows="4" required></textarea>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn" type="submit">Send enquiry</button>
+          </div>
+          <p class="form-note" data-form-status role="status"></p>
+        </form>
+
+        <div class="form-success" id="inquiry-success" hidden>
+          <h2>Message sent</h2>
+          <p>Your reference is</p>
+          <span class="ref" data-success-ref>—</span>
+          <p>We will get back to you as soon as we can.</p>
+          <div class="form-actions">
+            <a class="btn" data-account-link href="login.html?next=dashboard.html">View my request</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- chrome:footer:start -->
+  <footer class="footer">
+    <div class="wrap footer-grid">
+      <div>
+        <p class="footer-brand" data-slot="business_name">Your Business Name</p>
+        <p data-slot="address">Your street, Your city</p>
+        <p><a data-slot-href="tel:phone" href="tel:03000000000"><span data-slot="phone">0300 0000000</span></a> · <a data-slot-href="wa:phone" href="#">WhatsApp</a></p>
+      </div>
+      <div>
+        <h3>Stay in the loop</h3>
+        <p>Occasional news from us. No spam, unsubscribe anytime.</p>
+        <form id="newsletter-form" class="newsletter" novalidate>
+          <label class="sr-only" for="nl-email">Email address</label>
+          <input id="nl-email" name="email" type="email" placeholder="Your email address" required />
+          <button class="btn btn-small" type="submit">Subscribe</button>
+          <p class="form-note" data-form-status role="status"></p>
+        </form>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="services.html">Services</a>
+          <a href="gallery.html">Gallery</a>
+          <a href="about.html">About</a>
+          <a href="contact.html">Contact</a>
+          <a href="login.html">Sign in</a>
+          <a href="dashboard.html">My account</a>
+        </nav>
+      </div>
+    </div>
+    <div class="wrap footer-inner">
+      <span>© <span class="js-year"></span> <span data-slot="business_name">Your Business Name</span></span>
+      <span>Made with Dukan Builder</span>
+    </div>
+  </footer>
+  <!-- chrome:footer:end -->
+
+  <script src="theme.js"></script>
+  <script src="categories.js"></script>
+  <script src="store.js"></script>
+  <script src="site.js"></script>
+  <script src="forms.js"></script>
+</body>
+</html>
