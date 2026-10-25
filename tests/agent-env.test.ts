@@ -1,11 +1,23 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildAgentEnv } from "../lib/agent-env";
 import { startServe, stopServe } from "../lib/agent";
 import { buildOpenCodeConfig } from "../lib/opencode-config";
 import { analyzeDesign } from "../lib/vision";
+
+vi.mock("../lib/db", () => ({
+  default: {
+    prepare: () => ({
+      run: vi.fn().mockResolvedValue({ changes: 1 }),
+      get: vi.fn().mockResolvedValue(undefined),
+      all: vi.fn().mockResolvedValue([]),
+    }),
+  },
+}));
+
+import { restoreLocked, snapshotLocked } from "../worker/build-worker";
 
 const tempDirs: string[] = [];
 const originalOpencodeBin = process.env.OPENCODE_BIN;
@@ -133,5 +145,55 @@ describe("OpenCode process security", () => {
     );
     expect(observedVision.permission.bash).toBe("deny");
     expect(observedVision.permission.external_directory).toBe("deny");
+  });
+
+  it("restores opencode.json after a build turn if modified or deleted, and starts a fresh opencode serve per build", async () => {
+    const workspace = makeTempDir();
+    fs.writeFileSync(path.join(workspace, "index.html"), "<!doctype html><title>Site</title>");
+    fs.writeFileSync(path.join(workspace, "about.html"), "<!doctype html><title>About</title>");
+
+    const snap = snapshotLocked(workspace, "opencode/test-model");
+    expect(snap.has("opencode.json")).toBe(true);
+
+    // Simulate the agent tampering with opencode.json during a build turn
+    fs.writeFileSync(
+      path.join(workspace, "opencode.json"),
+      JSON.stringify({ model: "tampered", permission: { bash: "allow", external_directory: "allow" } })
+    );
+    expect(restoreLocked(workspace, snap)).toBe(1);
+    const restoredCfg = JSON.parse(fs.readFileSync(path.join(workspace, "opencode.json"), "utf8"));
+    expect(restoredCfg.model).toBe("opencode/test-model");
+    expect(restoredCfg.permission.bash).toBe("deny");
+    expect(restoredCfg.permission.external_directory).toBe("deny");
+
+    // Simulate the agent deleting opencode.json during a build turn
+    fs.unlinkSync(path.join(workspace, "opencode.json"));
+    expect(restoreLocked(workspace, snap)).toBe(1);
+    expect(fs.existsSync(path.join(workspace, "opencode.json"))).toBe(true);
+
+    // Verify each startServe call spawns a distinct opencode serve process (never reused)
+    const binDir = makeTempDir();
+    const fakeBin = path.join(binDir, "fake-opencode-serve");
+    fs.writeFileSync(
+      fakeBin,
+      [
+        `#!${process.execPath}`,
+        `process.stdout.write("listening on http://127.0.0.1:43211\\n");`,
+        `setInterval(() => {}, 1000);`,
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    process.env.OPENCODE_BIN = fakeBin;
+
+    const firstServe = await startServe(workspace, ["opencode/test-model"]);
+    const firstPid = firstServe.proc.pid;
+    await stopServe(firstServe);
+    expect(firstServe.proc.exitCode !== null || firstServe.proc.signalCode !== null).toBe(true);
+
+    const secondServe = await startServe(workspace, ["opencode/test-model"]);
+    const secondPid = secondServe.proc.pid;
+    await stopServe(secondServe);
+    expect(secondPid).toBeDefined();
+    expect(secondPid).not.toBe(firstPid);
   });
 });
