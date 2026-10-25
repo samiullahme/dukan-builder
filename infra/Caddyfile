@@ -1,0 +1,58 @@
+{
+	admin off
+	on_demand_tls {
+		ask http://127.0.0.1:8089
+	}
+}
+
+(common) {
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}
+
+builder.dukanbot.website {
+	import common
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:3010
+}
+
+preview.dukanbot.website {
+	import common
+	tls {
+		on_demand
+	}
+	handle /_api/* {
+		reverse_proxy 127.0.0.1:3010
+	}
+	handle {
+		root * /opt/preview-current
+		file_server
+	}
+}
+
+# Client subdomains: <slug>.dukanbot.website -> /opt/www/published/<slug>
+# Wildcard DNS (*.dukanbot.website) must point here. TLS certs auto-issued on first visit.
+*.dukanbot.website {
+	import common
+	tls {
+		on_demand
+	}
+	map {http.request.host} {slug} {
+		~^(?P<sub>[a-z0-9-]+)\.dukanbot\.website$ ${sub}
+		default ""
+	}
+	handle /_api/* {
+		reverse_proxy 127.0.0.1:3010
+	}
+	handle {
+		root * /opt/www/published/{slug}
+		file_server
+	}
+}

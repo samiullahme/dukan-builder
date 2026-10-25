@@ -1,0 +1,17 @@
+[Unit]
+Description=Dukan Builder Next.js app
+After=network.target
+
+[Service]
+Type=simple
+User=builder
+WorkingDirectory=/opt/builder
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/opt/builder/.env.opencode
+ExecStart=/usr/bin/node /opt/builder/node_modules/next/dist/bin/next start -p 3010 -H 127.0.0.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
