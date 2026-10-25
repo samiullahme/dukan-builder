@@ -25,8 +25,17 @@ import { writeOpenCodeConfig } from "../lib/opencode-config";
 import { sanitizeWorkspace } from "../lib/workspace-security";
 
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
-const BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS || 1_800_000);
-const REPAIR_TIMEOUT_MS = Number(process.env.REPAIR_TIMEOUT_MS || 600_000);
+export const MAX_TOTAL_AGENT_MS = 20 * 60_000;
+export const FIRST_ATTEMPT_CAP_MS = 12 * 60_000;
+export const FALLBACK_ATTEMPT_CAP_MS = 8 * 60_000;
+const BUILD_TIMEOUT_MS = Math.min(
+  Number(process.env.BUILD_TIMEOUT_MS || MAX_TOTAL_AGENT_MS),
+  MAX_TOTAL_AGENT_MS
+);
+const REPAIR_TIMEOUT_MS = Math.min(
+  Number(process.env.REPAIR_TIMEOUT_MS || 600_000),
+  MAX_TOTAL_AGENT_MS
+);
 // Models tried in order; a failed or timed-out model falls through to the
 // next one so a provider hiccup can't kill a build. Entries are
 // provider-qualified, so OpenCode free models and paid providers can be mixed
@@ -71,13 +80,66 @@ export type TurnOutcome = {
   sessionId: string;
   assistantReply: string | null;
   failedModels: string[];
+  attemptTimeoutsMs: number[];
+  elapsedMs: number;
 };
+
+export type RunAgentTurnOptions = {
+  maxTotalMs?: number;
+  nowFn?: () => number;
+};
+
+const EDITABLE_FILES = ["index.html", "styles.css", "site.json"] as const;
+
+/** Snapshot the 3 editable files (index.html, styles.css, site.json) before an agent turn. */
+export function snapshotEditable(workspace: string): Map<string, Buffer | null> {
+  const snap = new Map<string, Buffer | null>();
+  for (const name of EDITABLE_FILES) {
+    const p = path.join(workspace, name);
+    try {
+      snap.set(name, fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.readFileSync(p) : null);
+    } catch {
+      snap.set(name, null);
+    }
+  }
+  return snap;
+}
+
+/** Restore the 3 editable files (index.html, styles.css, site.json) from a pre-turn snapshot. */
+export function restoreEditable(workspace: string, snap: Map<string, Buffer | null>): number {
+  let restored = 0;
+  for (const [name, buf] of snap) {
+    if (!EDITABLE.has(name)) continue;
+    const p = path.join(workspace, name);
+    if (buf === null) {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { force: true });
+        restored++;
+      }
+      continue;
+    }
+    let current: Buffer | null = null;
+    try {
+      current = fs.existsSync(p) ? fs.readFileSync(p) : null;
+    } catch {
+      current = null;
+    }
+    if (!current || !current.equals(buf)) {
+      fs.writeFileSync(p, buf);
+      restored++;
+    }
+  }
+  return restored;
+}
 
 /**
  * Prompt the agent and wait for the turn to finish, falling back to the next
  * free model when one errors or times out. Each turn and fallback attempt
  * starts a fresh `opencode serve` instance and session so server state or
- * config edits can never carry over across turns or builds.
+ * config edits can never carry over across turns or builds. Before any
+ * fallback model runs, the 3 editable files (index.html, styles.css, site.json)
+ * are restored from the pre-turn snapshot. Total agent time is capped at 20
+ * minutes per build, with each fallback attempt capped lower than the first.
  */
 export async function runAgentTurn(
   buildId: string,
@@ -85,10 +147,41 @@ export async function runAgentTurn(
   prompt: string,
   timeoutMs: number,
   title: string,
-  models: string[]
+  models: string[],
+  opts: RunAgentTurnOptions = {}
 ): Promise<TurnOutcome> {
+  const now = opts.nowFn ?? Date.now;
+  const turnStartMs = now();
+  const totalCapMs = Math.max(0, Math.min(timeoutMs, opts.maxTotalMs ?? MAX_TOTAL_AGENT_MS));
+  const firstAttemptCapMs = Math.max(1, Math.floor(totalCapMs * 0.6));
+  const fallbackMaxCapMs = Math.max(1, Math.min(firstAttemptCapMs - 1, Math.floor(totalCapMs * 0.4)));
+  const editableSnapshot = snapshotEditable(workspace);
+
   const failedModels: string[] = [];
+  const attemptTimeoutsMs: number[] = [];
+
   for (let attempt = 0; attempt < models.length; attempt++) {
+    const elapsedBeforeAttempt = Math.max(0, now() - turnStartMs);
+    const remainingMs = totalCapMs - elapsedBeforeAttempt;
+    if (remainingMs <= 0) {
+      await appendLog(buildId, "total agent time cap reached — not starting another fallback model");
+      break;
+    }
+
+    if (attempt > 0) {
+      const restoredCount = restoreEditable(workspace, editableSnapshot);
+      await appendLog(
+        buildId,
+        `restored ${restoredCount} editable file(s) from pre-turn snapshot before fallback`
+      );
+    }
+
+    const attemptTimeoutMs =
+      attempt === 0
+        ? Math.min(firstAttemptCapMs, remainingMs)
+        : Math.min(fallbackMaxCapMs, remainingMs);
+    attemptTimeoutsMs.push(attemptTimeoutMs);
+
     const model = models[attempt];
     try {
       ensureOpencodeConfig(workspace, model);
@@ -102,31 +195,52 @@ export async function runAgentTurn(
       await db.prepare(`UPDATE builds SET opencode_session_id = ? WHERE id = ?`).run(sessionId, buildId);
       await appendLog(buildId, "agent session " + sessionId);
       const idleMark = await getSessionIdleMark(sessionId);
-      const sentAt = Date.now();
+      const sentAt = now();
       await appendLog(buildId, `agent model: ${model}${attempt ? " (fallback)" : ""}`);
       await promptAsync(serve, sessionId, prompt);
-      const timeoutMin = Math.round(timeoutMs / 60_000);
+      const timeoutMin = Math.max(1, Math.round(attemptTimeoutMs / 60_000));
       await appendLog(buildId, `prompt sent, waiting for the agent to go idle (up to ${timeoutMin} min)…`);
-      const result = await waitForIdle(serve, sessionId, timeoutMs, idleMark, (t, d) => {
+      const result = await waitForIdle(serve, sessionId, attemptTimeoutMs, idleMark, (t, d) => {
         void appendLog(buildId, `${t}: ${d}`);
       });
-      await appendLog(buildId, `agent ${result} after ${Math.round((Date.now() - sentAt) / 1000)}s`);
+      await appendLog(buildId, `agent ${result} after ${Math.round((now() - sentAt) / 1000)}s`);
       if (result === "idle") {
         const assistantReply = await lastAssistantText(serve, sessionId);
-        return { result, sessionId, assistantReply, failedModels };
+        return {
+          result,
+          sessionId,
+          assistantReply,
+          failedModels,
+          attemptTimeoutsMs,
+          elapsedMs: Math.max(0, now() - turnStartMs),
+        };
       }
       failedModels.push(`${model} (${result})`);
       if (result === "timeout") {
         try { await abortSession(serve, sessionId); } catch { /* best effort */ }
       }
       if (attempt + 1 < models.length) {
+        if (totalCapMs - Math.max(0, now() - turnStartMs) <= 0) {
+          await appendLog(
+            buildId,
+            `model ${model} failed and total agent time cap reached — stopping fallback chain`
+          );
+          break;
+        }
         await appendLog(buildId, `model ${model} failed — falling back to ${models[attempt + 1]}…`);
       }
     } finally {
       await stopServe(serve);
     }
   }
-  return { result: "error", sessionId: "", assistantReply: null, failedModels };
+  return {
+    result: "error",
+    sessionId: "",
+    assistantReply: null,
+    failedModels,
+    attemptTimeoutsMs,
+    elapsedMs: Math.max(0, now() - turnStartMs),
+  };
 }
 
 export async function failBuild(
@@ -688,14 +802,25 @@ async function processBuild(buildId: string): Promise<void> {
 ${qa.errors.slice(0, 12).map((e) => "- " + e).join("\n")}
 
 Fix ONLY these problems by editing site.json, index.html and styles.css. Every other file is locked. Keep the design, all business facts, every data-slot / data-slot-attr / data-slot-src / data-slot-href attribute and every required ID intact. Do NOT change media URLs. Do NOT start a server or fetch URLs — QA runs after you. Reply with one line when finished.`;
+      const remainingBuildAgentMs = Math.max(0, MAX_TOTAL_AGENT_MS - turn.elapsedMs);
+      if (remainingBuildAgentMs <= 0) {
+        await failBuild(
+          buildId,
+          site.id,
+          "QA failed and total agent time cap (20m) reached",
+          { userId, buildKind, quotaConsumed }
+        );
+        return;
+      }
       await appendLog(buildId, "asking the AI to fix the QA issues…");
       const repairTurn = await runAgentTurn(
         buildId,
         workspace,
         repairPrompt,
-        REPAIR_TIMEOUT_MS,
+        Math.min(REPAIR_TIMEOUT_MS, remainingBuildAgentMs),
         `${site.business_name} — QA repair`,
-        buildModels
+        buildModels,
+        { maxTotalMs: remainingBuildAgentMs }
       );
       const repair = repairTurn.result;
       await appendLog(buildId, `repair agent ${repair}`);
