@@ -37,4 +37,17 @@
 
 **Regression checks:** `tests/workspace-security.test.ts` creates file and directory symlinks to `/etc/hostname` and `/etc` in temporary workspaces, verifies cleanup, rejects copying links, and verifies chmod does not alter the linked target. `npm test` passed (4 tests total); typecheck passed. The test targets remain intact. Targeted lint counts for `lib/admin-actions.ts` (16 errors), `lib/publish.ts` (1), and the download route (1) match their pre-change baselines; `worker/build-worker.ts` remains at its post-#1 count (17 errors/1 warning). New sanitizer/test files have no lint errors or warnings.
 
-No finding is reported as fixed until its checks pass. Later phase results and the ordered ops checklist will be added below.
+### #7 — Next.js security advisories
+
+**Verified:** `npm audit` reported three Critical Next.js advisories for 16.4.0. The registry reported 16.4.3 as the latest version for both `next` and `eslint-config-next`.
+
+**Changed:** upgraded `next` and `eslint-config-next` to 16.4.3. Vitest was also upgraded to 4.1.12 because the initial test-runner release introduced Critical and Moderate advisories; this is the same test tool, not additional tooling.
+
+**Regression checks:** post-upgrade `npm audit` reported 0 vulnerabilities; `npm test` passed (4 tests); `npx --no-install tsc --noEmit` passed. Full lint reports 147 errors and 18 warnings versus the 150/19 baseline. The decreases are from removing the dead handler/config `any` in #1; no lint errors were added in changed files. Build remains blocked by Google Fonts network access.
+
+## Ops Checklist
+
+- [ ] Run `npm run build` with internet access.
+- [ ] For #4, the owner must verify the database role before applying the migration. The current process has no `DATABASE_URL`, and no `.env` file was read.
+
+No finding is reported as fixed until its checks pass. Later phase results and the final ordered ops checklist will be added below.
