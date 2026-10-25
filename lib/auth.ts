@@ -77,3 +77,41 @@ export async function requireAdmin(): Promise<User> {
   if (u.is_admin !== 1) notFound();
   return u;
 }
+
+function isAllowedHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h === "builder.dukanbot.website" ||
+    /^[a-z0-9-]+\.dukanbot\.website$/.test(h) ||
+    /^localhost(:\d+)?$/.test(h) ||
+    /^127\.0\.0\.1(:\d+)?$/.test(h)
+  );
+}
+
+export function publicOrigin(req: Request): string {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL;
+  if (envUrl) {
+    try {
+      return new URL(envUrl).origin;
+    } catch {
+      // fall through
+    }
+  }
+  const rawHost = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "")
+    .split(",")[0]
+    .trim();
+  if (rawHost && isAllowedHost(rawHost)) {
+    const isLocal = rawHost.startsWith("localhost") || rawHost.startsWith("127.0.0.1");
+    const fwdProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    const proto = isLocal ? fwdProto || "http" : "https";
+    return `${proto}://${rawHost}`;
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "https://builder.dukanbot.website";
+  }
+  try {
+    return new URL(req.url).origin;
+  } catch {
+    return "http://localhost:3000";
+  }
+}
