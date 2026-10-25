@@ -106,4 +106,26 @@ describe("workspace symlink safety", () => {
     expect(fs.existsSync(path.join(publishedDir, "AGENTS.md"))).toBe(false);
     expect(fs.existsSync(path.join(publishedDir, "design"))).toBe(false);
   });
+
+  it("removes the old published target before copying and succeeds when publishing the same site twice", () => {
+    const workspace = makeTempDir();
+    const publishedRoot = makeTempDir();
+    const slug = "repeat-publish-site";
+
+    fs.writeFileSync(path.join(workspace, "index.html"), "<!doctype html><title>Version 1</title>");
+    fs.writeFileSync(path.join(workspace, "old-asset.txt"), "only in v1");
+
+    const firstTarget = publishWorkspace(workspace, slug, publishedRoot);
+    expect(fs.readFileSync(path.join(firstTarget, "index.html"), "utf8")).toContain("Version 1");
+    expect(fs.existsSync(path.join(firstTarget, "old-asset.txt"))).toBe(true);
+
+    // Update workspace for second publish without manually deleting firstTarget
+    fs.unlinkSync(path.join(workspace, "old-asset.txt"));
+    fs.writeFileSync(path.join(workspace, "index.html"), "<!doctype html><title>Version 2</title>");
+
+    const secondTarget = publishWorkspace(workspace, slug, publishedRoot);
+    expect(secondTarget).toBe(firstTarget);
+    expect(fs.readFileSync(path.join(secondTarget, "index.html"), "utf8")).toContain("Version 2");
+    expect(fs.existsSync(path.join(secondTarget, "old-asset.txt"))).toBe(false);
+  });
 });

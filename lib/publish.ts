@@ -22,6 +22,8 @@ export function publishWorkspace(
   const target = path.join(publishedRoot, slug);
   try {
     fs.mkdirSync(publishedRoot, { recursive: true });
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.rmSync(staging, { recursive: true, force: true });
     copyWorkspaceNoSymlinks(workspace, staging);
     for (const drop of PUBLISH_DROPS) {
       fs.rmSync(path.join(staging, drop), { recursive: true, force: true });
