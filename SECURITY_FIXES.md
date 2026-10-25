@@ -45,9 +45,28 @@
 
 **Regression checks:** post-upgrade `npm audit` reported 0 vulnerabilities; `npm test` passed (4 tests); `npx --no-install tsc --noEmit` passed. Full lint reports 147 errors and 18 warnings versus the 150/19 baseline. The decreases are from removing the dead handler/config `any` in #1; no lint errors were added in changed files. Build remains blocked by Google Fonts network access.
 
+### #4 — Public-table RLS
+
+**Verified:** `lib/db.ts` uses `pg.Pool` with `DATABASE_URL`. The role is supplied at runtime and `DATABASE_URL` is unset in this environment, so it could not be verified here. Supabase client usage is server-side auth only; public data queries use the server-side `pg` module, with no client-side Supabase table queries found.
+
+**Prepared, not applied:** `supabase/migrations/003_enable_rls.sql` enables RLS and revokes table grants for all current public tables, then revokes default grants for tables created later by the role running the migration. Its first line says not to apply until the owner verifies the DB role. `supabase/verification/003_verify_rls.sql` checks the connected role's `rolbypassrls`, RLS coverage, current grants, and default grants. No database was contacted and no migration was run.
+
+**Checks:** `npm test` passed (4 tests); typecheck passed; full lint remains at 147 errors/18 warnings (baseline 150/19). The SQL scripts are the required manual verification because applying the migration is intentionally deferred to the owner.
+
+**Manual check:** after the owner verifies the app connection role has `rolbypassrls = true`, apply the migration using the trusted schema-owner role, run the verification SQL, then check the anon REST endpoint:
+
+```sh
+curl -i "$SUPABASE_URL/rest/v1/profiles?select=id&limit=1" \
+  -H "apikey: $SUPABASE_ANON_KEY" \
+  -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+```
+
+The endpoint must return no profile rows to the anon key.
+
 ## Ops Checklist
 
 - [ ] Run `npm run build` with internet access.
-- [ ] For #4, the owner must verify the database role before applying the migration. The current process has no `DATABASE_URL`, and no `.env` file was read.
+- [ ] Verify the app DB role from `supabase/verification/003_verify_rls.sql`; require `rolbypassrls = true` before applying the guarded migration.
+- [ ] Apply `supabase/migrations/003_enable_rls.sql` only after owner verification, then run the verification SQL and anon curl check above.
 
 No finding is reported as fixed until its checks pass. Later phase results and the final ordered ops checklist will be added below.
