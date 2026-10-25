@@ -128,4 +128,28 @@ describe("workspace symlink safety", () => {
     expect(fs.readFileSync(path.join(secondTarget, "index.html"), "utf8")).toContain("Version 2");
     expect(fs.existsSync(path.join(secondTarget, "old-asset.txt"))).toBe(false);
   });
+
+  it("removes regular files with nlink > 1 (hard links) while keeping the outside target intact", () => {
+    const outsideDir = makeTempDir();
+    const outsideSecret = path.join(outsideDir, "secret.env");
+    fs.writeFileSync(outsideSecret, "SECRET=1", { mode: 0o600 });
+
+    const workspace = makeTempDir();
+    const normalFile = path.join(workspace, "index.html");
+    fs.writeFileSync(normalFile, "<!doctype html><title>Normal</title>");
+    const hardLink = path.join(workspace, "hardlinked-secret.txt");
+    fs.linkSync(outsideSecret, hardLink);
+
+    expect(fs.lstatSync(hardLink).nlink).toBe(2);
+    expect(() => copyWorkspaceNoSymlinks(workspace, path.join(makeTempDir(), "dest"))).toThrow(/hard-linked/);
+
+    chmodRecursive(hardLink);
+    expect(fs.statSync(outsideSecret).mode & 0o777).toBe(0o600);
+
+    expect(sanitizeWorkspace(workspace)).toBe(1);
+    expect(fs.existsSync(hardLink)).toBe(false);
+    expect(fs.existsSync(normalFile)).toBe(true);
+    expect(fs.existsSync(outsideSecret)).toBe(true);
+    expect(fs.lstatSync(outsideSecret).nlink).toBe(1);
+  });
 });

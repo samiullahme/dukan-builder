@@ -34,7 +34,7 @@ export function sanitizeWorkspace(dir: string): number {
       }
 
       if (stat.isDirectory()) walk(entry);
-      else if (!stat.isFile()) {
+      else if (!stat.isFile() || stat.nlink > 1) {
         fs.unlinkSync(entry);
         removed++;
       }
@@ -63,6 +63,7 @@ export function copyWorkspaceNoSymlinks(source: string, destination: string): vo
       fs.mkdirSync(dest, { recursive: true });
       for (const name of fs.readdirSync(src)) copyEntry(path.join(src, name), path.join(dest, name));
     } else if (stat.isFile()) {
+      if (stat.nlink > 1) throw new Error(`refusing to copy hard-linked workspace file: ${src}`);
       fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
     } else {
       throw new Error(`refusing to copy unsupported workspace entry: ${src}`);
@@ -72,14 +73,14 @@ export function copyWorkspaceNoSymlinks(source: string, destination: string): vo
   copyEntry(source, destination);
 }
 
-/** Apply public file modes without following or changing symbolic links. */
+/** Apply public file modes without following or changing symbolic or hard links. */
 export function chmodRecursive(entry: string, directoryMode = 0o755, fileMode = 0o644): void {
   const stat = fs.lstatSync(entry);
   if (stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
     fs.chmodSync(entry, directoryMode);
     for (const name of fs.readdirSync(entry)) chmodRecursive(path.join(entry, name), directoryMode, fileMode);
-  } else if (stat.isFile()) {
+  } else if (stat.isFile() && stat.nlink === 1) {
     fs.chmodSync(entry, fileMode);
   }
 }
