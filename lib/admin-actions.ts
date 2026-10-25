@@ -4,6 +4,7 @@ import path from "path";
 import { get, query, run } from "./db";
 import { supabaseService } from "./auth";
 import { writeAudit } from "./admin";
+import { chmodRecursive, copyWorkspaceNoSymlinks, sanitizeWorkspace } from "./workspace-security";
 import { removeWorkspace } from "./provision";
 import type { User } from "./auth";
 
@@ -165,21 +166,19 @@ export async function republishSite(actor: User, siteId: string, reason: string 
       throw new AdminActionError("This website has no finished build to publish.");
     }
     const workspace = path.join(TENANTS_ROOT, site.user_id, site.slug);
+    sanitizeWorkspace(workspace);
     if (!fs.existsSync(path.join(workspace, "index.html"))) {
       throw new AdminActionError("Workspace files are missing.");
     }
     const staging = path.join(PUBLISHED_ROOT, `.tmp-${site.slug}-${crypto.randomBytes(6).toString("hex")}`);
     const target = path.join(PUBLISHED_ROOT, site.slug);
     fs.mkdirSync(PUBLISHED_ROOT, { recursive: true });
-    fs.cpSync(workspace, staging, { recursive: true });
+    copyWorkspaceNoSymlinks(workspace, staging);
     for (const drop of ["opencode.json", "AGENTS.md", "design"]) {
       const p = path.join(staging, drop);
       if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
     }
-    fs.chmodSync(staging, 0o755);
-    for (const f of fs.readdirSync(staging)) {
-      fs.chmodSync(path.join(staging, f), 0o644);
-    }
+    chmodRecursive(staging);
     fs.rmSync(target, { recursive: true, force: true });
     fs.renameSync(staging, target);
     await run(`UPDATE sites SET status = 'published' WHERE id = ?`, siteId);

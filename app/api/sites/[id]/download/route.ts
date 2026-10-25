@@ -7,6 +7,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { getUser } from "@/lib/auth";
 import { getSiteForUser } from "@/lib/site";
+import { sanitizeWorkspace } from "@/lib/workspace-security";
 
 const execFileAsync = promisify(execFile);
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
@@ -19,16 +20,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!site) return NextResponse.json({ error: "Site not found." }, { status: 404 });
 
   const workspace = path.join(TENANTS_ROOT, site.user_id, site.slug);
-  if (!fs.existsSync(path.join(workspace, "index.html"))) {
+  if (!fs.existsSync(workspace)) {
     return NextResponse.json({ error: "Workspace files are missing." }, { status: 404 });
   }
 
   const tmpZip = path.join(os.tmpdir(), `dukan-${site.slug}-${crypto.randomBytes(6).toString("hex")}.zip`);
   try {
+    sanitizeWorkspace(workspace);
+    if (!fs.existsSync(path.join(workspace, "index.html"))) {
+      return NextResponse.json({ error: "Workspace files are missing." }, { status: 404 });
+    }
     // Zip the workspace source, leaving out platform-only files.
     await execFileAsync(
       "zip",
-      ["-qr", tmpZip, ".", "-x", "opencode.json", "-x", "AGENTS.md", "-x", "design/*", "-x", "design", "-x", ".history/*", "-x", ".history"],
+      ["-qr", "-y", tmpZip, ".", "-x", "opencode.json", "-x", "AGENTS.md", "-x", "design/*", "-x", "design", "-x", ".history/*", "-x", ".history"],
       { cwd: workspace }
     );
     const data = await fs.promises.readFile(tmpZip);

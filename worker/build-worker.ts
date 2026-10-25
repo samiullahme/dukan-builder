@@ -22,6 +22,7 @@ import { syncChrome } from "../lib/chrome";
 import { snapshotBuild, restoreSnapshot, pruneHistory, hasSnapshot } from "../lib/history";
 import { publishWorkspace } from "../lib/publish";
 import { buildOpenCodeConfig } from "../lib/opencode-config";
+import { sanitizeWorkspace } from "../lib/workspace-security";
 
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
 const BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS || 1_800_000);
@@ -153,6 +154,7 @@ const CHROME_PAGES = ["about.html", "services.html", "gallery.html", "contact.ht
 
 /** Undo any edits the agent made to locked files and remove invented pages/scripts. */
 function restoreLocked(workspace: string, snap: Map<string, Buffer>): number {
+  sanitizeWorkspace(workspace);
   let restored = 0;
   for (const [name, buf] of snap) {
     const p = path.join(workspace, name);
@@ -414,6 +416,7 @@ async function tick(): Promise<void> {
 }
 
 async function processRevert(buildId: string, site: any, build: any, workspace: string): Promise<void> {
+  sanitizeWorkspace(workspace);
   const sourceId = String(build.input || "").trim();
   await appendLog(buildId, `reverting "${site.business_name}" to build ${sourceId}`);
   if (!hasSnapshot(workspace, sourceId)) {

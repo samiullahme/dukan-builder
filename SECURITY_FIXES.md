@@ -29,4 +29,12 @@
 
 **Provider environment:** OpenCode needs `HOME` to find its saved OpenCode credentials for `opencode/...` models. A configured external model gets only its selected provider key (for example, `DEEPSEEK_API_KEY`); custom providers use `CUSTOM_API_KEY` or `FREELLMAPI_KEY` as configured. Run the agent as a separate low-privilege OS user.
 
+### #3 — Workspace symlink exfiltration
+
+**Verified:** `restoreLocked` read and wrote locked paths without checking for symlinks; publishing used recursive copy and `statSync`-based chmod; and downloads zipped the workspace without cleanup or `-y`.
+
+**Changed:** shared `sanitizeWorkspace()` uses `lstatSync` and real paths to remove links and outside entries. It runs from `restoreLocked`, before revert restoration, inside `publishWorkspace` (used by site publish/revert), in admin `republishSite`, and before ZIP creation. Workspace publishing copies fail closed on symlinks/outside paths, and `chmodRecursive()` uses `lstatSync` and skips links. The ZIP command now uses `-y`.
+
+**Regression checks:** `tests/workspace-security.test.ts` creates file and directory symlinks to `/etc/hostname` and `/etc` in temporary workspaces, verifies cleanup, rejects copying links, and verifies chmod does not alter the linked target. `npm test` passed (4 tests total); typecheck passed. The test targets remain intact. Targeted lint counts for `lib/admin-actions.ts` (16 errors), `lib/publish.ts` (1), and the download route (1) match their pre-change baselines; `worker/build-worker.ts` remains at its post-#1 count (17 errors/1 warning). New sanitizer/test files have no lint errors or warnings.
+
 No finding is reported as fixed until its checks pass. Later phase results and the ordered ops checklist will be added below.
