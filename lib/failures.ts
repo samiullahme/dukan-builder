@@ -19,19 +19,38 @@ export const FAILURE_LABELS: Record<FailureReason, string> = {
   unknown: "Unknown",
 };
 
+export const REFUNDABLE_FAILURE_REASONS: ReadonlySet<FailureReason> = new Set<FailureReason>([
+  "infra_error",
+  "interrupted",
+  "agent_timeout",
+  "agent_error",
+]);
+
+export function shouldRefundQuota(reason: FailureReason, buildKind = "build"): boolean {
+  if (buildKind !== "build") return false;
+  return REFUNDABLE_FAILURE_REASONS.has(reason);
+}
+
 export function classifyFailure(msg: string): FailureReason {
   const m = msg.toLowerCase();
   if (m.includes("quota exhausted")) return "quota_exhausted";
   if (m.includes("interrupted by a server restart")) return "interrupted";
-  if (m.includes("timed out")) return "agent_timeout";
   if (m.includes("qa failed") || m.includes("qa report")) return "qa_failed";
-  if (m.includes("agent reported an error") || m.includes("unexpected token")) return "agent_error";
-  if (m.includes("sanity check failed")) return "sanity_check";
+  if (m.includes("sanity check failed") || m.includes("invalid brief")) return "sanity_check";
+  if (m.includes("timed out") || m.includes("(timeout)")) return "agent_timeout";
+  if (
+    m.includes("agent reported an error") ||
+    m.includes("agent failed with every model") ||
+    m.includes("unexpected token")
+  ) {
+    return "agent_error";
+  }
   if (
     m.includes("opencode serve") ||
     m.includes("workspace missing") ||
     m.includes("site row disappeared") ||
-    m.includes("could not write opencode")
+    m.includes("could not write opencode") ||
+    m.includes("no usable build models")
   ) {
     return "infra_error";
   }

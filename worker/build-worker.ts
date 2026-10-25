@@ -16,7 +16,7 @@ import { renderBuildPrompt, renderRefinePrompt } from "../lib/prompts";
 import { analyzeDesign, paletteFromPlan, type DesignPlan } from "../lib/vision";
 import { fetchSiteMedia, isSiteMedia, type SiteMedia } from "../lib/media";
 import { normalizeCategory } from "../lib/categories";
-import { classifyFailure } from "../lib/failures";
+import { classifyFailure, shouldRefundQuota, type FailureReason } from "../lib/failures";
 import { usableModels } from "../lib/model-chain";
 import { syncChrome } from "../lib/chrome";
 import { snapshotBuild, restoreSnapshot, pruneHistory, hasSnapshot } from "../lib/history";
@@ -129,12 +129,35 @@ export async function runAgentTurn(
   return { result: "error", sessionId: "", assistantReply: null, failedModels };
 }
 
-async function failBuild(buildId: string, siteId: string, msg: string): Promise<void> {
+export async function failBuild(
+  buildId: string,
+  siteId: string,
+  msg: string,
+  opts: { userId?: string; buildKind?: string; quotaConsumed?: boolean } = {}
+): Promise<FailureReason> {
+  const reason = classifyFailure(msg);
   await appendLog(buildId, `[stage:failed] FAILED: ${msg}`);
   await db
     .prepare(`UPDATE builds SET status = 'failed', finished_at = now(), failure_reason = ? WHERE id = ?`)
-    .run(classifyFailure(msg), buildId);
+    .run(reason, buildId);
   await db.prepare(`UPDATE sites SET status = 'draft' WHERE id = ?`).run(siteId);
+
+  const kind = opts.buildKind ?? "build";
+  const consumed = opts.quotaConsumed ?? true;
+  if (consumed && shouldRefundQuota(reason, kind)) {
+    let userId = opts.userId;
+    if (!userId) {
+      const s = await db.prepare(`SELECT user_id FROM sites WHERE id = ?`).get<{ user_id: string }>(siteId);
+      userId = s?.user_id;
+    }
+    if (userId) {
+      await db
+        .prepare(`UPDATE quota SET builds_used = GREATEST(0, builds_used - 1) WHERE user_id = ?`)
+        .run(userId);
+      await appendLog(buildId, `refunded 1 build quota unit (reason: ${reason})`);
+    }
+  }
+  return reason;
 }
 
 /** Snapshot every file the agent is not allowed to change (top level), including opencode.json. */
@@ -355,11 +378,14 @@ export function startBuildWorker(): void {
  */
 function recoverOrphanedBuilds(): void {
   db
-    .prepare(`SELECT id, site_id FROM builds WHERE status = 'building'`)
-    .all<{ id: string; site_id: string }>()
+    .prepare(`SELECT id, site_id, kind FROM builds WHERE status = 'building'`)
+    .all<{ id: string; site_id: string; kind: string }>()
     .then((rows) => {
       for (const row of rows) {
-        failBuild(row.id, row.site_id, "build was interrupted by a server restart — please build again");
+        void failBuild(row.id, row.site_id, "build was interrupted by a server restart — please build again", {
+          buildKind: row.kind,
+          quotaConsumed: row.kind === "build",
+        });
       }
     })
     .catch((e) => console.error("[build-worker] orphan recovery failed:", e?.message));
@@ -471,14 +497,22 @@ async function processBuild(buildId: string): Promise<void> {
   if (claimed.changes === 0) return;
 
   let siteId = buildId;
+  let userId: string | undefined;
+  let buildKind = "build";
+  let quotaConsumed = false;
   try {
     const build = await db.prepare(`SELECT * FROM builds WHERE id = ?`).get<any>(buildId);
+    buildKind = build?.kind || "build";
     const site = await db.prepare(`SELECT * FROM sites WHERE id = ?`).get<any>(build.site_id);
     if (!site) {
-      await failBuild(buildId, build.site_id, "site row disappeared");
+      await failBuild(buildId, build.site_id, "site row disappeared", {
+        buildKind,
+        quotaConsumed: false,
+      });
       return;
     }
     siteId = site.id;
+    userId = site.user_id;
     const brief = await db.prepare(`SELECT * FROM briefs WHERE site_id = ?`).get<any>(site.id);
     const quota = await db
       .prepare(`SELECT builds_used, builds_allowed FROM quota WHERE user_id = ?`)
@@ -486,7 +520,11 @@ async function processBuild(buildId: string): Promise<void> {
 
     const workspace = path.join(TENANTS_ROOT, site.user_id, site.slug);
     if (!fs.existsSync(path.join(workspace, "index.html"))) {
-      await failBuild(buildId, site.id, "workspace missing: " + workspace);
+      await failBuild(buildId, site.id, "workspace missing: " + workspace, {
+        userId,
+        buildKind,
+        quotaConsumed: false,
+      });
       return;
     }
 
@@ -499,10 +537,15 @@ async function processBuild(buildId: string): Promise<void> {
     // Quota is consumed when a full build starts; chat refinements are free.
     if (build.kind === "build") {
       if ((quota?.builds_used ?? 0) >= (quota?.builds_allowed ?? 5)) {
-        await failBuild(buildId, site.id, "beta build quota exhausted");
+        await failBuild(buildId, site.id, "beta build quota exhausted", {
+          userId,
+          buildKind,
+          quotaConsumed: false,
+        });
         return;
       }
       await db.prepare(`UPDATE quota SET builds_used = builds_used + 1 WHERE user_id = ?`).run(site.user_id);
+      quotaConsumed = true;
     }
 
     await appendStage(buildId, "prepare");
@@ -559,7 +602,8 @@ async function processBuild(buildId: string): Promise<void> {
       await failBuild(
         buildId,
         site.id,
-        "no usable build models — every model in OPENCODE_BUILD_MODELS is missing its API key"
+        "no usable build models — every model in OPENCODE_BUILD_MODELS is missing its API key",
+        { userId, buildKind, quotaConsumed }
       );
       return;
     }
@@ -591,7 +635,12 @@ async function processBuild(buildId: string): Promise<void> {
       buildModels
     );
     if (turn.result !== "idle") {
-      await failBuild(buildId, site.id, `agent failed with every model (${turn.failedModels.join(", ")})`);
+      await failBuild(
+        buildId,
+        site.id,
+        `agent failed with every model (${turn.failedModels.join(", ")})`,
+        { userId, buildKind, quotaConsumed }
+      );
       return;
     }
     let assistantReply = turn.assistantReply;
@@ -616,7 +665,11 @@ async function processBuild(buildId: string): Promise<void> {
       if (!sj.business_name) throw new Error("site.json has no business_name");
       if (sj.slug !== site.slug) throw new Error("site.json slug changed");
     } catch (e: any) {
-      await failBuild(buildId, site.id, "sanity check failed: " + e.message);
+      await failBuild(buildId, site.id, "sanity check failed: " + e.message, {
+        userId,
+        buildKind,
+        quotaConsumed,
+      });
       return;
     }
 
@@ -647,7 +700,12 @@ Fix ONLY these problems by editing site.json, index.html and styles.css. Every o
       const repair = repairTurn.result;
       await appendLog(buildId, `repair agent ${repair}`);
       if (repair !== "idle") {
-        await failBuild(buildId, site.id, `QA failed and the repair turn failed (${repairTurn.failedModels.join(", ")})`);
+        await failBuild(
+          buildId,
+          site.id,
+          `QA failed and the repair turn failed (${repairTurn.failedModels.join(", ")})`,
+          { userId, buildKind, quotaConsumed }
+        );
         return;
       }
       if (repairTurn.assistantReply) assistantReply = repairTurn.assistantReply;
@@ -664,7 +722,11 @@ Fix ONLY these problems by editing site.json, index.html and styles.css. Every o
       qa = await runSiteQa(workspace, buildId);
       await appendLog(buildId, `QA after repair: ${qa.errors.length} error(s), ${qa.warnings} warning(s) — ${qa.outDir}`);
       if (!qa.ok) {
-        await failBuild(buildId, site.id, "QA failed after repair: " + qa.errors[0]);
+        await failBuild(buildId, site.id, "QA failed after repair: " + qa.errors[0], {
+          userId,
+          buildKind,
+          quotaConsumed,
+        });
         return;
       }
     }
@@ -690,7 +752,11 @@ Fix ONLY these problems by editing site.json, index.html and styles.css. Every o
     await db.prepare(`UPDATE builds SET status = 'ready', finished_at = now() WHERE id = ?`).run(buildId);
     await db.prepare(`UPDATE sites SET status = 'ready' WHERE id = ?`).run(site.id);
   } catch (e: any) {
-    await failBuild(buildId, siteId, e?.message || String(e));
+    await failBuild(buildId, siteId, e?.message || String(e), {
+      userId,
+      buildKind,
+      quotaConsumed,
+    });
   } finally {
     logChain.delete(buildId);
   }
