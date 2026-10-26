@@ -22,7 +22,7 @@ export default async function AdminWebsiteDetail({ params }: { params: Promise<{
   const [site, builds] = await Promise.all([getAdminSite(id), listSiteBuilds(id)]);
   if (!site) notFound();
 
-  const liveUrl = `https://${site.slug}.dukanbot.website`;
+  const liveUrl = `https://${site.slug}.lanesite.pro`;
 
   async function unpublish(fd: FormData) {
     "use server";
@@ -195,7 +195,7 @@ export default async function AdminWebsiteDetail({ params }: { params: Promise<{
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Subdomain</div>
               <div className="mt-1 flex items-center gap-1">
                 <a href={liveUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-pine-800 hover:underline">
-                  {site.slug}.dukanbot.website
+                  {site.slug}.lanesite.pro
                 </a>
                 <CopyButton value={liveUrl} />
               </div>

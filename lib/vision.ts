@@ -264,7 +264,7 @@ export async function analyzeDesign(imagePath: string, workspace: string): Promi
   let lastRaw = "";
   for (let attempt = 0; attempt < VISION_MODELS.length; attempt++) {
     const model = VISION_MODELS[attempt];
-    const timeoutMs = attempt === 0 ? 240_000 : 150_000;
+    const timeoutMs = attempt === 0 ? 90_000 : 60_000;
     try {
       const { stdout, stderr, timedOut } = await runVision(
         ["run", "--standalone", "-m", model, "--format", "json", "--file", imagePath, VISION_PROMPT],

@@ -70,9 +70,9 @@ describe("OpenCode process security", () => {
     expect(config.permission).toEqual({
       read: "allow",
       edit: "allow",
-      glob: "allow",
-      grep: "allow",
-      list: "allow",
+      glob: "deny",
+      grep: "deny",
+      list: "deny",
       bash: "deny",
       task: "deny",
       external_directory: "deny",

@@ -378,10 +378,11 @@ if (html) {
   if (!/class="[^"]*js-auth-link/.test(html)) add("error", "slot:auth-link", "no .js-auth-link");
   if (!/data-slot-attr="content:tagline"/.test(html)) add("warn", "meta:description", "no hydrated meta description");
   if (!/<meta name="viewport"/.test(html)) add("error", "meta:viewport", "missing viewport meta");
-  for (const page of ["about.html", "services.html", "gallery.html", "contact.html", "login.html"]) {
-    if (!html.includes(`href="${page}"`)) add("error", "nav:" + page, "homepage does not link to " + page);
+  for (const page of ["about", "services", "gallery", "contact", "login"]) {
+    const re = new RegExp(`href="(?:\\/)?${page}(?:\\.html)?"`, "i");
+    if (!re.test(html)) add("error", "nav:" + page, "homepage does not link to " + page);
   }
-  if (!/href="contact\.html#book"/.test(html)) add("error", "nav:book", "no link to contact.html#book");
+  if (!/href="(?:\/)?contact(?:\.html)?#book"/i.test(html)) add("error", "nav:book", "no link to contact#book");
   for (const script of ["theme.js", "site.js", "categories.js", "store.js", "forms.js"]) {
     if (!html.includes(script)) add("error", "script:" + script, "homepage does not load " + script);
   }
@@ -418,7 +419,7 @@ function chromeBlock(src, tag) {
 function normChrome(block) {
   return String(block)
     .replace(/\saria-current="[^"]*"/gi, "")
-    .replace(/\bhref="index\.html#([^"]+)"/g, 'href="#$1"')
+    .replace(/\bhref="(?:index\.html|\/)?#([^"]+)"/g, 'href="#$1"')
     .replace(/>\s+</g, "><")
     .replace(/\s+/g, " ")
     .trim();

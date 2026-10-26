@@ -119,7 +119,7 @@ export default async function AdminOverview() {
           <Link href={`/admin/websites/${r.id}`} className="font-medium text-slate-900 hover:underline">
             {r.business_name}
           </Link>
-          <div className="text-xs text-slate-400">{r.slug}.dukanbot.website</div>
+          <div className="text-xs text-slate-400">{r.slug}.lanesite.pro</div>
         </div>
       ),
     },

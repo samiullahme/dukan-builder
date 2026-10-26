@@ -7,7 +7,7 @@ export function PublishPanel({ siteId, siteStatus, slug }: { siteId: string; sit
   const [busy, setBusy] = useState<"preview" | "publish" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(
-    siteStatus === "published" ? `https://${slug}.dukanbot.website` : null
+    siteStatus === "published" ? `https://${slug}.lanesite.pro` : null
   );
   const built = siteStatus === "ready" || siteStatus === "published";
 
@@ -18,7 +18,7 @@ export function PublishPanel({ siteId, siteStatus, slug }: { siteId: string; sit
       const res = await fetch(`/api/sites/${siteId}/preview`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not start the preview.");
-      window.open("https://preview.dukanbot.website", "_blank", "noopener");
+      window.open("https://preview.lanesite.pro", "_blank", "noopener");
     } catch (e: any) {
       setError(e.message);
     } finally {

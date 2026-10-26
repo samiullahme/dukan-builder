@@ -33,9 +33,9 @@ export function buildOpenCodeConfig(model: string, env: NodeJS.ProcessEnv = proc
     permission: {
       read: "allow",
       edit: "allow",
-      glob: "allow",
-      grep: "allow",
-      list: "allow",
+      glob: "deny",
+      grep: "deny",
+      list: "deny",
       bash: "deny",
       task: "deny",
       external_directory: "deny",

@@ -29,7 +29,7 @@
       var user = window.DukanStore.currentUser();
       if (user) {
         authLink.textContent = "My dashboard";
-        authLink.setAttribute("href", "dashboard.html");
+        authLink.setAttribute("href", "dashboard");
       }
     }
 

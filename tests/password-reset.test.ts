@@ -84,7 +84,7 @@ describe("password reset routes", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-forwarded-host": "builder.dukanbot.website",
+          "x-forwarded-host": "builder.lanesite.pro",
           "x-forwarded-proto": "https",
         },
         body: JSON.stringify({ email: "  Owner@Shop.pk " }),
@@ -93,7 +93,7 @@ describe("password reset routes", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ ok: true });
       expect(mockAuth.resetPasswordForEmail).toHaveBeenCalledWith("owner@shop.pk", {
-        redirectTo: "https://builder.dukanbot.website/reset-password",
+        redirectTo: "https://builder.lanesite.pro/reset-password",
       });
     });
 

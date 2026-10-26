@@ -46,17 +46,17 @@ function extractChrome(src: string, tag: ChromeTag): { html: string; marked: boo
 }
 
 /** In-page anchors (#menu) only work on the homepage; from another page they
- * must point at index.html#menu. Empty href="#" is left for the runtime. */
+ * must point at /#menu. Empty href="#" is left for the runtime. */
 function scopeChromeLinks(block: string): string {
-  return block.replace(/\bhref="#([^"\s]+)"/g, 'href="index.html#$1"');
+  return block.replace(/\bhref="#([^"\s]+)"/g, 'href="/#$1"');
 }
 
 /** Mark this page's nav link, and clear any current-page mark coming from the
- * homepage chrome. */
+ * homepage chrome. Matches clean ("contact", "/contact") and ".html" hrefs. */
 function setCurrentPage(block: string, page: string): string {
   const bare = block.replace(/\saria-current="page"/gi, "");
-  const href = page.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return bare.replace(new RegExp(`(<a\\b[^>]*\\bhref="${href}"[^>]*)>`, "i"), '$1 aria-current="page">');
+  const clean = page.replace(/\.html$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return bare.replace(new RegExp(`(<a\\b[^>]*\\bhref="(?:\\/)?${clean}(?:\\.html)?"[^>]*)>`, "i"), '$1 aria-current="page">');
 }
 
 function replaceChrome(src: string, tag: ChromeTag, inner: string): string {

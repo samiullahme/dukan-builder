@@ -256,7 +256,7 @@ export function SitesTable({ rows, now, showOwner = true }: { rows: AdminSiteRow
             <tr key={s.id} className="transition-colors hover:bg-stone-50/70">
               <Td>
                 <p className="font-medium text-stone-900">{s.business_name}</p>
-                <p className="mt-0.5 font-mono text-xs text-stone-400">{s.slug}.dukanbot.website</p>
+                <p className="mt-0.5 font-mono text-xs text-stone-400">{s.slug}.lanesite.pro</p>
               </Td>
               {showOwner && (
                 <Td className="hidden md:table-cell">
@@ -285,7 +285,7 @@ export function SitesTable({ rows, now, showOwner = true }: { rows: AdminSiteRow
               <Td>
                 {s.status === "published" ? (
                   <a
-                    href={`https://${s.slug}.dukanbot.website`}
+                    href={`https://${s.slug}.lanesite.pro`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 text-xs font-semibold text-pine-800 hover:underline"

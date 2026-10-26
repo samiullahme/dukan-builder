@@ -74,12 +74,14 @@
   }
 
   function render() {
-    if (!user || !window.DukanStore) return;
+    if (!window.DukanStore) return;
     document.querySelectorAll("[data-user-name]").forEach(function (node) {
-      node.textContent = user.name;
+      node.textContent = user ? user.name : "Guest";
     });
 
-    var list = window.DukanStore.myRequests().filter(function (r) { return r.type !== "newsletter"; });
+    var list = user
+      ? window.DukanStore.myRequests().filter(function (r) { return r.type !== "newsletter"; })
+      : window.DukanStore.guestRequests();
     var active = list.filter(function (r) { return r.status === "new" || r.status === "confirmed"; });
     var cancelled = list.filter(function (r) { return r.status === "cancelled"; });
     var stats = {
@@ -101,7 +103,7 @@
     if (empty) empty.hidden = list.length > 0;
 
     var profile = document.getElementById("profile-form");
-    if (profile) {
+    if (profile && user) {
       profile.elements.name.value = user.name;
       profile.elements.email.value = user.email;
       profile.elements.phone.value = user.phone || "";
@@ -111,19 +113,75 @@
   document.addEventListener("DOMContentLoaded", function () {
     if (!window.DukanStore) return;
     user = window.DukanStore.currentUser();
-    if (!user) {
-      location.replace("login.html?next=dashboard.html");
+    var params = new URLSearchParams(location.search);
+    var isTrack = params.has("track");
+    var trackRef = params.get("track") || "";
+
+    if (!user && !isTrack) {
+      location.replace("login?next=dashboard");
       return;
+    }
+
+    if (!user) {
+      var profileAside = document.getElementById("profile-aside");
+      var trackAside = document.getElementById("track-aside");
+      if (profileAside) profileAside.hidden = true;
+      if (trackAside) trackAside.hidden = false;
+      document.querySelectorAll(".js-logout").forEach(function (btn) {
+        btn.textContent = "Sign in";
+        btn.addEventListener("click", function () {
+          location.href = "login?next=dashboard";
+        });
+      });
+    } else {
+      document.querySelectorAll(".js-logout").forEach(function (button) {
+        button.addEventListener("click", function () {
+          window.DukanStore.logout();
+          location.href = "/";
+        });
+      });
+    }
+
+    var trackForm = document.getElementById("track-form");
+    if (trackForm) {
+      if (trackRef && trackForm.elements.ref && !trackForm.elements.ref.value) {
+        trackForm.elements.ref.value = trackRef;
+      }
+      trackForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (!trackForm.reportValidity()) return;
+        var note = document.getElementById("track-status");
+        var rVal = trackForm.elements.ref.value.trim().toUpperCase();
+        var eVal = trackForm.elements.email.value.trim();
+        if (note) { note.textContent = "Looking up…"; note.className = "form-note"; }
+        window.DukanStore.syncRequests(eVal, [rVal]).then(function (res) {
+          if (!note) return;
+          if (res && res.length) {
+            note.textContent = "Status updated.";
+            note.className = "form-note is-success";
+          } else {
+            note.textContent = "No request found with that reference and email.";
+            note.className = "form-note is-error";
+          }
+        });
+      });
     }
 
     window.DukanStore.ready.then(function () {
       render();
-    });
-
-    document.querySelectorAll(".js-logout").forEach(function (button) {
-      button.addEventListener("click", function () {
-        window.DukanStore.logout();
-        location.href = "index.html";
+      var list = user
+        ? window.DukanStore.myRequests().filter(function (r) { return r.type !== "newsletter"; })
+        : window.DukanStore.guestRequests();
+      var byEmail = {};
+      list.forEach(function (r) {
+        if (r.email && r.ref) {
+          var e = r.email.toLowerCase();
+          if (!byEmail[e]) byEmail[e] = [];
+          byEmail[e].push(r.ref);
+        }
+      });
+      Object.keys(byEmail).forEach(function (e) {
+        window.DukanStore.syncRequests(e, byEmail[e]);
       });
     });
 
@@ -143,7 +201,7 @@
     }
 
     var profile = document.getElementById("profile-form");
-    if (profile) {
+    if (profile && user) {
       profile.addEventListener("submit", function (event) {
         event.preventDefault();
         if (!profile.reportValidity()) return;

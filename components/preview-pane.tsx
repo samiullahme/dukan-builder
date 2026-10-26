@@ -33,7 +33,7 @@ export function PreviewPane({ status, slug }: { status: string; slug: string }) 
   const [device, setDevice] = useState<Device["id"]>("desktop");
   const [tick, setTick] = useState(0);
   const live = status === "published";
-  const src = live ? `https://${slug}.dukanbot.website` : null;
+  const src = live ? `https://${slug}.lanesite.pro` : null;
 
   return (
     <Card className="overflow-hidden">
@@ -41,7 +41,7 @@ export function PreviewPane({ status, slug }: { status: string; slug: string }) 
         <div>
           <h2 className="font-semibold text-slate-900">Live preview</h2>
           <p className="font-mono text-[11px] text-slate-400">
-            {live ? `${slug}.dukanbot.website` : "Publish your site to see the live preview"}
+            {live ? `${slug}.lanesite.pro` : "Publish your site to see the live preview"}
           </p>
         </div>
         {live && (

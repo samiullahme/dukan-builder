@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
-import db from "../lib/db";
+import db, { tx } from "../lib/db";
 import {
   startServe,
   createSession,
@@ -57,8 +57,9 @@ const CONFIGURED_BUILD_MODELS = (
 const QA_SCRIPT = process.env.QA_SCRIPT || "/opt/builder/qa/qa-check.cjs";
 const POLL_MS = 8000;
 const EDITABLE = new Set(["site.json", "index.html", "styles.css"]);
+const MAX_CONCURRENT_BUILDS = Math.max(1, Number(process.env.MAX_CONCURRENT_BUILDS || 2));
 
-let active = false;
+let activeBuildsCount = 0;
 
 // Log appends are serialized per build so lines never interleave out of order.
 const logChain = new Map<string, Promise<void>>();
@@ -257,26 +258,33 @@ export async function failBuild(
 ): Promise<FailureReason> {
   const reason = classifyFailure(msg);
   await appendLog(buildId, `[stage:failed] FAILED: ${msg}`);
-  await db
-    .prepare(`UPDATE builds SET status = 'failed', finished_at = now(), failure_reason = ? WHERE id = ?`)
-    .run(reason, buildId);
-  await db.prepare(`UPDATE sites SET status = 'draft' WHERE id = ?`).run(siteId);
 
   const kind = opts.buildKind ?? "build";
   const consumed = opts.quotaConsumed ?? true;
-  if (consumed && shouldRefundQuota(reason, kind)) {
+  const refundable = consumed && shouldRefundQuota(reason, kind);
+
+  // The failed-status transition and the quota refund commit together, and the
+  // refund only happens when this call is the one that moved the build into
+  // 'failed'. A repeated failBuild for the same build never refunds again.
+  const refunded = await tx(async (t) => {
+    const { changes } = await t
+      .prepare(
+        `UPDATE builds SET status = 'failed', finished_at = now(), failure_reason = ? WHERE id = ? AND status <> 'failed'`
+      )
+      .run(reason, buildId);
+    await t.prepare(`UPDATE sites SET status = 'draft' WHERE id = ?`).run(siteId);
+    if (changes === 0 || !refundable) return false;
+
     let userId = opts.userId;
     if (!userId) {
-      const s = await db.prepare(`SELECT user_id FROM sites WHERE id = ?`).get<{ user_id: string }>(siteId);
+      const s = await t.prepare(`SELECT user_id FROM sites WHERE id = ?`).get<{ user_id: string }>(siteId);
       userId = s?.user_id;
     }
-    if (userId) {
-      await db
-        .prepare(`UPDATE quota SET builds_used = GREATEST(0, builds_used - 1) WHERE user_id = ?`)
-        .run(userId);
-      await appendLog(buildId, `refunded 1 build quota unit (reason: ${reason})`);
-    }
-  }
+    if (!userId) return false;
+    await t.prepare(`UPDATE quota SET builds_used = GREATEST(0, builds_used - 1) WHERE user_id = ?`).run(userId);
+    return true;
+  });
+  if (refunded) await appendLog(buildId, `refunded 1 build quota unit (reason: ${reason})`);
   return reason;
 }
 
@@ -634,20 +642,40 @@ async function runSiteQa(workspace: string, buildId: string): Promise<QaResult> 
   return { ok: errors.length === 0, errors, warnings, outDir };
 }
 
+// QA lock: serializes heavy Playwright Chromium browser execution across builds
+// so the VPS memory stays flat and predictable.
+let qaQueue: Promise<void> = Promise.resolve();
+
+export async function runSiteQaExclusive(workspace: string, buildId: string): Promise<QaResult> {
+  let release: () => void = () => {};
+  const current = qaQueue;
+  qaQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await current;
+  try {
+    return await runSiteQa(workspace, buildId);
+  } finally {
+    release();
+  }
+}
+
 async function tick(): Promise<void> {
-  if (active) return;
+  if (activeBuildsCount >= MAX_CONCURRENT_BUILDS) return;
   const row = await db
     .prepare(`SELECT id FROM builds WHERE status = 'queued' ORDER BY created_at LIMIT 1`)
     .get<{ id: string }>();
   if (!row) return;
-  active = true;
-  try {
-    await processBuild(row.id);
-  } catch (e: any) {
-    console.error("[build-worker] processBuild threw:", e?.message);
-  } finally {
-    active = false;
-  }
+  activeBuildsCount++;
+  (async () => {
+    try {
+      await processBuild(row.id);
+    } catch (e: any) {
+      console.error("[build-worker] processBuild threw:", e?.message);
+    } finally {
+      activeBuildsCount = Math.max(0, activeBuildsCount - 1);
+    }
+  })();
 }
 
 async function processRevert(buildId: string, site: any, build: any, workspace: string): Promise<void> {
@@ -878,7 +906,7 @@ export async function processBuild(buildId: string): Promise<void> {
     // contrast, links and hydration. One repair turn is allowed.
     await appendStage(buildId, "qa");
     await appendLog(buildId, "running the browser QA check…");
-    let qa = await runSiteQa(workspace, buildId);
+    let qa = await runSiteQaExclusive(workspace, buildId);
     await appendLog(buildId, `QA: ${qa.errors.length} error(s), ${qa.warnings} warning(s) — ${qa.outDir}`);
     if (!qa.ok) {
       for (const err of qa.errors.slice(0, 12)) await appendLog(buildId, "  QA: " + err);
@@ -930,7 +958,7 @@ Fix ONLY these problems by editing site.json, index.html and styles.css. Every o
         // QA will surface any remaining site.json problem
       }
       await appendLog(buildId, "re-running the browser QA check…");
-      qa = await runSiteQa(workspace, buildId);
+      qa = await runSiteQaExclusive(workspace, buildId);
       await appendLog(buildId, `QA after repair: ${qa.errors.length} error(s), ${qa.warnings} warning(s) — ${qa.outDir}`);
       if (!qa.ok) {
         await failBuild(buildId, site.id, "QA failed after repair: " + qa.errors[0], {

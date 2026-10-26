@@ -70,7 +70,7 @@
     var account = panel.querySelector("[data-account-link]");
     if (account) {
       var user = window.DukanStore ? window.DukanStore.currentUser() : null;
-      account.setAttribute("href", user ? "dashboard.html" : "login.html?next=dashboard.html");
+      account.setAttribute("href", user ? "dashboard" : "dashboard?track=" + encodeURIComponent(request.ref));
     }
     panel.scrollIntoView({ behavior: "smooth", block: "center" });
   }

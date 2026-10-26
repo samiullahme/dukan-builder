@@ -1,12 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sqlCalls: { sql: string; params: unknown[] }[] = [];
+// Minimal stateful fake: build statuses and per-user quota usage.
+const buildStatus = new Map<string, string>();
+const buildsUsed = new Map<string, number>();
 
-vi.mock("../lib/db", () => ({
-  default: {
+function resetDb() {
+  sqlCalls.length = 0;
+  buildStatus.clear();
+  buildsUsed.clear();
+}
+
+vi.mock("../lib/db", () => {
+  const fakeDb = {
     prepare: (sql: string) => ({
       run: async (...params: unknown[]) => {
         sqlCalls.push({ sql, params });
+        if (sql.includes("UPDATE builds SET status = 'failed'")) {
+          const buildId = params[1] as string;
+          if (sql.includes("status <> 'failed'") && buildStatus.get(buildId) === "failed") {
+            return { changes: 0 };
+          }
+          buildStatus.set(buildId, "failed");
+          return { changes: 1 };
+        }
+        if (sql.includes("UPDATE quota SET builds_used = GREATEST(0, builds_used - 1)")) {
+          const userId = params[0] as string;
+          buildsUsed.set(userId, Math.max(0, (buildsUsed.get(userId) ?? 0) - 1));
+        }
         return { changes: 1 };
       },
       get: async (...params: unknown[]) => {
@@ -15,8 +36,17 @@ vi.mock("../lib/db", () => ({
       },
       all: async () => [],
     }),
-  },
-}));
+  };
+  return {
+    default: fakeDb,
+    tx: async <T>(fn: (db: typeof fakeDb) => Promise<T>): Promise<T> => {
+      sqlCalls.push({ sql: "BEGIN", params: [] });
+      const result = await fn(fakeDb);
+      sqlCalls.push({ sql: "COMMIT", params: [] });
+      return result;
+    },
+  };
+});
 
 import {
   classifyFailure,
@@ -27,7 +57,7 @@ import { failBuild } from "../worker/build-worker";
 
 describe("quota refund on failure", () => {
   beforeEach(() => {
-    sqlCalls.length = 0;
+    resetDb();
   });
 
   it("refunds 1 quota unit for infra_error, interrupted, agent_timeout and agent_error", async () => {
@@ -39,7 +69,7 @@ describe("quota refund on failure", () => {
     ] as const;
 
     for (const c of cases) {
-      sqlCalls.length = 0;
+      resetDb();
       expect(classifyFailure(c.msg)).toBe(c.expected);
       expect(shouldRefundQuota(c.expected, "build")).toBe(true);
 
@@ -58,6 +88,34 @@ describe("quota refund on failure", () => {
     }
   });
 
+  it("refunds exactly once when failBuild is called twice for the same build", async () => {
+    const msg = "opencode serve exited early (code 1)";
+    expect(shouldRefundQuota(classifyFailure(msg), "build")).toBe(true);
+    buildStatus.set("build-dup", "building");
+    buildsUsed.set("user-1", 3);
+
+    const opts = { userId: "user-1", buildKind: "build", quotaConsumed: true };
+    await failBuild("build-dup", "site-dup", msg, opts);
+    await failBuild("build-dup", "site-dup", msg, opts);
+
+    const refundCalls = sqlCalls.filter((call) =>
+      call.sql.includes("UPDATE quota SET builds_used = GREATEST(0, builds_used - 1)")
+    );
+    expect(refundCalls).toHaveLength(1);
+    expect(buildsUsed.get("user-1")).toBe(2);
+    expect(buildStatus.get("build-dup")).toBe("failed");
+
+    // The status transition and the refund ran inside the same transaction.
+    const begin = sqlCalls.findIndex((c) => c.sql === "BEGIN");
+    const commit = sqlCalls.findIndex((c) => c.sql === "COMMIT");
+    const statusIdx = sqlCalls.findIndex((c) => c.sql.includes("UPDATE builds SET status = 'failed'"));
+    const refundIdx = sqlCalls.indexOf(refundCalls[0]);
+    expect(begin).toBeGreaterThanOrEqual(0);
+    expect(begin).toBeLessThan(statusIdx);
+    expect(statusIdx).toBeLessThan(refundIdx);
+    expect(refundIdx).toBeLessThan(commit);
+  });
+
   it("does NOT refund quota for QA failure after repair or user-invalid briefs", async () => {
     const noRefundMessages = [
       "QA failed after repair: horizontal overflow on mobile",
@@ -68,7 +126,7 @@ describe("quota refund on failure", () => {
     ];
 
     for (const msg of noRefundMessages) {
-      sqlCalls.length = 0;
+      resetDb();
       await failBuild("build-2", "site-2", msg, {
         userId: "user-1",
         buildKind: "build",

@@ -24,5 +24,5 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   await db.prepare(`UPDATE sites SET status = 'published' WHERE id = ?`).run(site.id);
-  return NextResponse.json({ ok: true, url: `https://${site.slug}.dukanbot.website` });
+  return NextResponse.json({ ok: true, url: `https://${site.slug}.lanesite.pro` });
 }

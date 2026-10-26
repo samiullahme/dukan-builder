@@ -33,7 +33,8 @@ const post = async (path, body) => {
 (async () => {
   const e = env();
   const slug = process.argv[2] || "lahore-food-street-bbq-2";
-  const BASE = `https://${slug}.dukanbot.website`;
+  const domain = process.env.BASE_DOMAIN || "lanesite.pro";
+  const BASE = `https://${slug}.${domain}`;
   const stamp = Date.now().toString(36);
   const email = `qa-live-${stamp}@example.com`;
   const subEmail = `qa-live-sub-${stamp}@example.com`;
@@ -109,6 +110,15 @@ const post = async (path, body) => {
   check("status-patch", patched.status === 200 && patched.body.ok === true, `http ${patched.status}`);
   const afterPatch = await list();
   check("status-persists", !!afterPatch.body.requests?.some((r) => r.ref === ref && r.status === "confirmed"));
+
+  // Public lookup by ref + email.
+  const lookup = await post(`${BASE}/_api/site-data/lookup`, { slug, email, refs: [ref] });
+  check("lookup-ok", lookup.status === 200 && Array.isArray(lookup.body.requests) && lookup.body.requests.length === 1 && lookup.body.requests[0].ref === ref && lookup.body.requests[0].status === "confirmed", `http ${lookup.status}`);
+  check("lookup-whitelist-safe", lookup.body.requests[0]?.name === undefined && lookup.body.requests[0]?.phone === undefined && lookup.body.requests[0]?.message === undefined);
+
+  // Reject lookup with wrong email.
+  const badLookup = await post(`${BASE}/_api/site-data/lookup`, { slug, email: "nobody@example.com", refs: [ref] });
+  check("lookup-email-guard", badLookup.status === 200 && Array.isArray(badLookup.body.requests) && badLookup.body.requests.length === 0, `http ${badLookup.status}`);
 
   // Public cancel by ref + email.
   const cancel = await post(`${BASE}/_api/site-data/cancel`, { slug, ref, email });

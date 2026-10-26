@@ -20,7 +20,7 @@ export default async function SitePage({ params }: { params: Promise<{ id: strin
   const brief = (await db.prepare("SELECT * FROM briefs WHERE site_id = ?").get(site.id)) as any;
   const quota = (await db.prepare("SELECT builds_used, builds_allowed FROM quota WHERE user_id = ?").get(user.id)) as any;
   const quotaLeft = Math.max(0, (quota?.builds_allowed ?? 5) - (quota?.builds_used ?? 0));
-  const publicUrl = `https://${site.slug}.dukanbot.website`;
+  const publicUrl = `https://${site.slug}.lanesite.pro`;
   let designPlan: any = null;
   try {
     designPlan = brief?.design_plan ? JSON.parse(brief.design_plan) : null;
@@ -59,7 +59,7 @@ export default async function SitePage({ params }: { params: Promise<{ id: strin
             {site.status === "published" ? (
               <>Live at <a href={publicUrl} target="_blank" rel="noreferrer" className="font-mono font-semibold text-emerald-700 hover:underline">{publicUrl}</a></>
             ) : (
-              <>Will publish to <span className="font-mono text-slate-600">{site.slug}.dukanbot.website</span></>
+              <>Will publish to <span className="font-mono text-slate-600">{site.slug}.lanesite.pro</span></>
             )}
           </p>
         </div>

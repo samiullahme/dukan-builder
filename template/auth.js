@@ -4,7 +4,7 @@
 (function () {
   var params = new URLSearchParams(location.search);
   var requestedNext = params.get("next") || "";
-  var nextPage = requestedNext === "dashboard.html" ? requestedNext : "";
+  var nextPage = (requestedNext === "dashboard" || requestedNext === "dashboard.html") ? "dashboard" : "";
 
   function setStatus(message, kind, id) {
     var el = document.getElementById(id || "auth-status");
@@ -14,7 +14,7 @@
   }
 
   function go(user) {
-    location.replace(nextPage || "dashboard.html");
+    location.replace(nextPage || "dashboard");
   }
 
   function setMode(mode) {

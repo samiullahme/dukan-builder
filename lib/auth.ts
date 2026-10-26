@@ -81,8 +81,9 @@ export async function requireAdmin(): Promise<User> {
 function isAllowedHost(host: string): boolean {
   const h = host.toLowerCase();
   return (
+    h === "builder.lanesite.pro" ||
     h === "builder.dukanbot.website" ||
-    /^[a-z0-9-]+\.dukanbot\.website$/.test(h) ||
+    /^[a-z0-9-]+\.(lanesite\.pro|dukanbot\.website)$/.test(h) ||
     /^localhost(:\d+)?$/.test(h) ||
     /^127\.0\.0\.1(:\d+)?$/.test(h)
   );
@@ -107,7 +108,7 @@ export function publicOrigin(req: Request): string {
     return `${proto}://${rawHost}`;
   }
   if (process.env.NODE_ENV === "production") {
-    return "https://builder.dukanbot.website";
+    return "https://builder.lanesite.pro";
   }
   try {
     return new URL(req.url).origin;

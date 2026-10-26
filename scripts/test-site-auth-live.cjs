@@ -23,7 +23,8 @@ function check(name, cond, extra) {
 (async () => {
   const e = env();
   const slug = process.argv[2] || "lahore-food-street-bbq-2";
-  const BASE = `https://${slug}.dukanbot.website`;
+  const domain = process.env.BASE_DOMAIN || "lanesite.pro";
+  const BASE = `https://${slug}.${domain}`;
   const encKey = Buffer.from((e.SITE_ADMIN_ENC_KEY || "").replace(/[^0-9a-fA-F]/g, ""), "hex");
   check("enc-key", encKey.length === 32);
 
