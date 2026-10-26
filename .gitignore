@@ -51,3 +51,6 @@ data/
 /lib/build-info.json
 
 *.bak
+
+# python bytecode
+__pycache__/

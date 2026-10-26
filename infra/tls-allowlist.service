@@ -1,0 +1,11 @@
+[Unit]
+Description=TLS allowlist for Caddy on-demand
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/tls-allowlist.py
+Restart=always
+User=nobody
+
+[Install]
+WantedBy=multi-user.target
