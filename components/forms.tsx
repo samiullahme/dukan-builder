@@ -35,8 +35,96 @@ export function useSubmit(url: string, onOk: (data: any) => void) {
 export function LoginForm() {
   const router = useRouter();
   const { error, busy, submit } = useSubmit("/api/auth/login", () => router.push("/dashboard"));
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [resetSent, setResetSent] = useState(false);
+  const {
+    error: forgotError,
+    busy: forgotBusy,
+    submit: submitForgot,
+  } = useSubmit("/api/auth/forgot-password", () => setResetSent(true));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    const search = window.location.search;
+    const hash = window.location.hash;
+    const params = new URLSearchParams(search);
+    const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
+    if (
+      params.get("code") ||
+      params.get("token_hash") ||
+      hashParams.get("type") === "recovery" ||
+      hashParams.get("access_token")
+    ) {
+      router.replace(`/reset-password${search}${hash}`);
+    }
+  }, [router]);
+
+  if (mode === "forgot") {
+    return (
+      <PageShell>
+        <div className="mb-8 flex justify-center"><Logo /></div>
+        <Card className="p-8">
+          <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Enter your email address and we&apos;ll send you a link to set a new password.
+          </p>
+          {resetSent ? (
+            <div className="mt-6 space-y-4">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                If an account exists for <span className="font-semibold">{email}</span>, we&apos;ve sent a password reset link. Check your inbox and spam folder.
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  setMode("login");
+                  setResetSent(false);
+                }}
+              >
+                Back to log in
+              </Button>
+            </div>
+          ) : (
+            <form
+              className="mt-6 space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitForgot({ email });
+              }}
+            >
+              <FormError message={forgotError} />
+              <Field label="Email">
+                <Input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@yourshop.pk"
+                  autoComplete="email"
+                />
+              </Field>
+              <Button type="submit" disabled={forgotBusy} className="w-full">
+                {forgotBusy ? "Sending reset link…" : "Send reset link"}
+              </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("login");
+                  setResetSent(false);
+                }}
+                className="w-full cursor-pointer text-center text-sm font-semibold text-slate-600 hover:text-slate-900 hover:underline"
+              >
+                ← Back to log in
+              </button>
+            </form>
+          )}
+        </Card>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell>
       <div className="mb-8 flex justify-center"><Logo /></div>
@@ -51,9 +139,32 @@ export function LoginForm() {
           <Field label="Email">
             <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@yourshop.pk" autoComplete="email" />
           </Field>
-          <Field label="Password">
-            <Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
-          </Field>
+          <div className="block">
+            <div className="mb-1.5 flex items-center justify-between">
+              <label htmlFor="login-password" className="text-sm font-semibold text-slate-700">
+                Password
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("forgot");
+                  setResetSent(false);
+                }}
+                className="cursor-pointer text-xs font-semibold text-emerald-700 hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+            <Input
+              id="login-password"
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
+          </div>
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? "Logging in…" : "Log in"}
           </Button>
@@ -61,6 +172,160 @@ export function LoginForm() {
         <p className="mt-5 text-center text-sm text-slate-500">
           No account yet? <a href="/signup" className="font-semibold text-emerald-700 hover:underline">Create one — it&apos;s free</a>
         </p>
+      </Card>
+    </PageShell>
+  );
+}
+
+export function ForgotPasswordForm() {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const { error, busy, submit } = useSubmit("/api/auth/forgot-password", () => setSent(true));
+
+  return (
+    <PageShell>
+      <div className="mb-8 flex justify-center"><Logo /></div>
+      <Card className="p-8">
+        <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Enter your email address and we&apos;ll send you a link to set a new password.
+        </p>
+        {sent ? (
+          <div className="mt-6 space-y-4">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              If an account exists for <span className="font-semibold">{email}</span>, we&apos;ve sent a password reset link. Check your inbox and spam folder.
+            </div>
+            <a
+              href="/login"
+              className="block text-center text-sm font-semibold text-emerald-700 hover:underline"
+            >
+              ← Back to log in
+            </a>
+          </div>
+        ) : (
+          <form
+            className="mt-6 space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit({ email });
+            }}
+          >
+            <FormError message={error} />
+            <Field label="Email">
+              <Input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@yourshop.pk"
+                autoComplete="email"
+              />
+            </Field>
+            <Button type="submit" disabled={busy} className="w-full">
+              {busy ? "Sending reset link…" : "Send reset link"}
+            </Button>
+            <p className="mt-4 text-center text-sm text-slate-500">
+              Remembered your password?{" "}
+              <a href="/login" className="font-semibold text-emerald-700 hover:underline">
+                Log in
+              </a>
+            </p>
+          </form>
+        )}
+      </Card>
+    </PageShell>
+  );
+}
+
+export function ResetPasswordForm() {
+  const router = useRouter();
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [localError, setLocalError] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    return (
+      searchParams.get("error_description") ||
+      hashParams.get("error_description") ||
+      null
+    );
+  });
+  const [done, setDone] = useState(false);
+
+  const { error, busy, submit } = useSubmit("/api/auth/reset-password", () => {
+    setDone(true);
+    router.push("/dashboard");
+  });
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    if (password !== confirmPassword) {
+      setLocalError("The two passwords do not match.");
+      return;
+    }
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    submit({
+      password,
+      code: searchParams.get("code") || "",
+      token_hash: searchParams.get("token_hash") || "",
+      type: searchParams.get("type") || hashParams.get("type") || "",
+      access_token: hashParams.get("access_token") || "",
+      refresh_token: hashParams.get("refresh_token") || "",
+    });
+  };
+
+  return (
+    <PageShell>
+      <div className="mb-8 flex justify-center"><Logo /></div>
+      <Card className="p-8">
+        <h1 className="text-2xl font-bold tracking-tight">Choose a new password</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Enter a new password for your Dukan Builder account.
+        </p>
+        {done ? (
+          <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Your password has been updated. Redirecting to your dashboard…
+          </div>
+        ) : (
+          <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+            <FormError message={localError || error} />
+            <Field label="New password" hint="At least 8 characters.">
+              <Input
+                type="password"
+                required
+                minLength={8}
+                maxLength={72}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Choose a strong password"
+                autoComplete="new-password"
+              />
+            </Field>
+            <Field label="Confirm new password">
+              <Input
+                type="password"
+                required
+                minLength={8}
+                maxLength={72}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter your new password"
+                autoComplete="new-password"
+              />
+            </Field>
+            <Button type="submit" disabled={busy} className="w-full">
+              {busy ? "Updating password…" : "Update password"}
+            </Button>
+            <p className="mt-4 text-center text-sm text-slate-500">
+              <a href="/login" className="font-semibold text-emerald-700 hover:underline">
+                ← Back to log in
+              </a>
+            </p>
+          </form>
+        )}
       </Card>
     </PageShell>
   );

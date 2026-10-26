@@ -12,10 +12,10 @@
 <body>
   <header class="app-bar">
     <div class="app-bar-inner">
-      <a class="app-brand" href="index.html"><span class="brand-dot" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
+      <a class="app-brand" href="/"><span class="brand-dot" aria-hidden="true"></span> <span data-slot="business_name">Your Business Name</span></a>
       <span class="app-role">My account</span>
       <div class="app-bar-actions">
-        <a class="app-link" href="index.html">View site</a>
+        <a class="app-link" href="/">View site</a>
         <span class="app-user" data-user-name></span>
         <button class="mini-btn js-logout" type="button">Sign out</button>
       </div>
@@ -30,7 +30,7 @@
         <p class="app-muted">Track what you have sent us and update your contact details.</p>
       </div>
       <div class="app-head-actions">
-        <a class="btn btn-primary" href="contact.html#book">Make a new request</a>
+        <a class="btn btn-primary" href="contact#book">Make a new request</a>
       </div>
     </div>
 
@@ -48,15 +48,15 @@
       <section>
         <div class="section-headline">
           <h2>My requests</h2>
-          <a href="contact.html">Send another</a>
+          <a href="contact">Send another</a>
         </div>
         <div class="stack" id="my-requests"></div>
         <div class="empty" id="requests-empty" hidden>
-          Nothing here yet. <a href="contact.html#book">Send your first request</a> and it will appear here.
+          Nothing here yet. <a href="contact#book">Send your first request</a> and it will appear here.
         </div>
       </section>
 
-      <aside class="dash-card">
+      <aside class="dash-card" id="profile-aside">
         <h2>My details</h2>
         <p>Keep your phone number up to date so the business can reach you.</p>
         <form id="profile-form" novalidate>
@@ -75,6 +75,25 @@
           <button class="btn btn-primary" type="submit">Save changes</button>
           <p class="form-note" id="profile-status" role="status"></p>
         </form>
+      </aside>
+
+      <aside class="dash-card" id="track-aside" hidden>
+        <h2>Look up a request</h2>
+        <p>Enter your reference number and email to check its status.</p>
+        <form id="track-form" novalidate>
+          <div class="field">
+            <label for="track-ref">Reference</label>
+            <input id="track-ref" name="ref" type="text" placeholder="BK-XXXXXX" required />
+          </div>
+          <div class="field">
+            <label for="track-email">Email</label>
+            <input id="track-email" name="email" type="email" autocomplete="email" required />
+          </div>
+          <button class="btn btn-primary" type="submit">Check status</button>
+          <p class="form-note" id="track-status" role="status"></p>
+        </form>
+        <hr style="margin: 1.5rem 0; border: 0; border-top: 1px solid var(--border, #e5e7eb);" />
+        <p><a href="login?next=dashboard">Create an account</a> with the same email to save your details for next time.</p>
       </aside>
     </div>
   </main>

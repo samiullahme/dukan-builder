@@ -315,6 +315,53 @@
     });
   }
 
+  function guestRequests() {
+    return requests().filter(function (r) {
+      return !r.userId && !r.sample && r.type !== "newsletter";
+    });
+  }
+
+  function syncRequests(email, refs) {
+    var cleanEmail = String(email || "").trim().toLowerCase();
+    var list = Array.isArray(refs) ? refs.filter(Boolean) : [];
+    if (!cleanEmail || list.length === 0) return Promise.resolve([]);
+    return postJson("/site-data/lookup", { slug: SLUG, email: cleanEmail, refs: list })
+      .then(function (out) {
+        if (out.status === 200 && out.body && Array.isArray(out.body.requests)) {
+          var updated = false;
+          out.body.requests.forEach(function (sr) {
+            if (sr.sample || sr.type === "newsletter") return;
+            var existing = data.requests.find(function (r) { return r.ref === sr.ref; });
+            if (existing) {
+              if (existing.status !== sr.status) {
+                existing.status = sr.status;
+                updated = true;
+              }
+            } else {
+              data.requests.push({
+                id: sr.id || uid(),
+                ref: sr.ref,
+                type: sr.type,
+                name: "",
+                email: cleanEmail,
+                phone: "",
+                message: "",
+                fields: sr.fields || {},
+                status: sr.status,
+                createdAt: sr.createdAt,
+                sample: false,
+                userId: null
+              });
+              updated = true;
+            }
+          });
+          if (updated) emit();
+          return out.body.requests;
+        }
+        return [];
+      });
+  }
+
   function updateRequestStatus(id, status) {
     var request = data.requests.find(function (r) { return r.id === id; });
     if (!request) return { ok: false, error: "Request not found." };
@@ -329,7 +376,10 @@
     var request = data.requests.find(function (r) { return r.id === id; });
     if (!request) return { ok: false, error: "Request not found." };
     var user = currentUser();
-    if (!user || (request.userId !== user.id && request.email.toLowerCase() !== user.email.toLowerCase())) {
+    var isOwner = user
+      ? (request.userId === user.id || (request.email && request.email.toLowerCase() === user.email.toLowerCase()))
+      : !request.userId;
+    if (!isOwner) {
       return { ok: false, error: "You can only cancel your own request." };
     }
     if (request.type !== "booking" && request.type !== "inquiry") {
@@ -375,6 +425,8 @@
     createRequest: createRequest,
     requests: requests,
     myRequests: myRequests,
+    guestRequests: guestRequests,
+    syncRequests: syncRequests,
     updateRequestStatus: updateRequestStatus,
     cancelRequest: cancelRequest,
     deleteRequest: deleteRequest,

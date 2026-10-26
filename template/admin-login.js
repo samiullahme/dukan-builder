@@ -5,7 +5,7 @@
 (function () {
   var params = new URLSearchParams(location.search);
   var requestedNext = params.get("next") || "";
-  var nextPage = requestedNext === "admin.html" ? "admin.html" : "";
+  var nextPage = (requestedNext === "admin" || requestedNext === "admin.html") ? "admin" : "";
 
   function setStatus(message, kind) {
     var el = document.getElementById("admin-login-status");
@@ -45,7 +45,7 @@
         .then(function (body) {
           localStorage.setItem("dukan_admin_token", body.token);
           localStorage.setItem("dukan_admin_user", body.username || form.elements.username.value);
-          location.replace(nextPage || "admin.html");
+          location.replace(nextPage || "admin");
         })
         .catch(function (err) {
           if (button) button.disabled = false;

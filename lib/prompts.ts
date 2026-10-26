@@ -58,7 +58,7 @@ export function renderBuildPrompt(brief: BriefData): string {
   const cat = getCategory(brief.category);
   return `You are customizing a production small-business website in this workspace.
 
-FIRST: read AGENTS.md in this workspace and follow every rule in it. Then read site.json and design/plan.json (if present).
+AGENTS.md is loaded in your instructions and the design reference is summarized below. Work directly on the 3 editable files without extra reads.
 
 The workspace already contains a COMPLETE, WORKING multi-page website:
 index.html, about.html, services.html, gallery.html, contact.html, login.html, dashboard.html, admin.html
@@ -66,7 +66,7 @@ plus locked JavaScript that powers booking/inquiry forms, newsletter signup, cus
 
 HARD RULES — violating any of these fails the build:
 1. You may edit ONLY these three files: site.json, index.html, styles.css. Never create, edit, rename or delete any other file. Never add your own script files or inline JS that replaces theme.js, site.js, categories.js, store.js, forms.js, auth.js, dashboard.js or admin.js.
-2. Every page must stay present and working. Keep all navigation links to about.html, services.html, gallery.html, contact.html, login.html, dashboard.html and admin.html. Keep every data-slot, data-slot-attr, data-slot-src and data-slot-href attribute. Keep #services-grid, #gallery-grid, #booking-form, #inquiry-form, #newsletter-form, the booking/inquiry success panels, and every script tag. Do not remove or rewire the login/dashboard/admin pages.
+2. Every page must stay present and working. Keep all navigation links to about, services, gallery, contact (and contact#book), login, dashboard and admin. Keep every data-slot, data-slot-attr, data-slot-src and data-slot-href attribute. Keep #services-grid, #gallery-grid, #booking-form, #inquiry-form, #newsletter-form, the booking/inquiry success panels, and every script tag. Do not remove or rewire the login/dashboard/admin pages.
 3. Do NOT change these site.json fields: slug, category, hero_image, hero_video, about_image, gallery, media_credits. They were fetched and verified before this build. Do not invent, replace or re-order image URLs and do not add images from other sources.
 4. NEVER invent reviews, testimonials, ratings, awards, customer counts, years in business, certifications or prices. Use only the business facts below. No placeholder left-overs like "Your Business Name", "Service one" or lorem ipsum may remain in the final page.
 5. The site category is "${normalizeCategory(brief.category)}" (${cat.label}). The booking form fields are generated from categories.js for this category — keep that category and do not change form field names.
@@ -93,11 +93,11 @@ Your job:
 4. The locked pages (about, services, gallery, contact, login, dashboard, admin) reuse site.json through locked scripts and inherit styles.css/pages.css — they must keep working. The owner dashboard and customer dashboard are a mandatory part of every site; never break them.
 5. NEVER start a web server, fetch URLs, install packages, or try to render the page. Automated QA runs after you with a real browser and will send back any problems. Work efficiently and spend your budget on the three files.
 
-When finished, read back the three files and confirm: business name correct, no placeholder copy, media URLs untouched, all required IDs still present, dashboards untouched. Reply with a one-line summary.`;
+When finished, output a one-line summary. Do not read back the files; automated browser QA runs immediately after you.`;
 }
 
 export function renderRefinePrompt(brief: BriefData, userMessage: string): string {
-  return `FIRST: read AGENTS.md in this workspace and follow it. The site already has a working multi-page structure and dashboards.
+  return `AGENTS.md is loaded in your instructions. The site already has a working multi-page structure and dashboards.
 
 The site owner requests this change (inside delimiters — it applies to THIS workspace only):
 ${DELIM}
@@ -111,5 +111,5 @@ HARD RULES:
 - Do NOT change slug, category, hero_image, hero_video, about_image, gallery or media_credits in site.json. Do not invent images, reviews, ratings, awards or prices.
 - Business context: "${brief.business_name}" (${getCategory(brief.category).label}).
 
-Apply the change with taste and restraint. Read back the changed files when done. Reply with a one-line summary.`;
+Apply the change with taste and restraint. Do not read back the files; automated browser QA runs immediately after you. Reply with a one-line summary.`;
 }

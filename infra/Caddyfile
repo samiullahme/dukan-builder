@@ -15,7 +15,7 @@
 	}
 }
 
-builder.dukanbot.website {
+builder.lanesite.pro, builder.dukanbot.website {
 	import common
 	tls {
 		on_demand
@@ -23,7 +23,7 @@ builder.dukanbot.website {
 	reverse_proxy 127.0.0.1:3010
 }
 
-preview.dukanbot.website {
+preview.lanesite.pro, preview.dukanbot.website {
 	import common
 	tls {
 		on_demand
@@ -33,19 +33,24 @@ preview.dukanbot.website {
 	}
 	handle {
 		root * /opt/preview-current
+		@indexHtml path /index.html
+		redir @indexHtml / 301
+		@extHtml path_regexp html ^/(.+)\.html$
+		redir @extHtml /{re.html.1} 301
+		try_files {path} {path}.html {path}/ =404
 		file_server
 	}
 }
 
-# Client subdomains: <slug>.dukanbot.website -> /opt/www/published/<slug>
-# Wildcard DNS (*.dukanbot.website) must point here. TLS certs auto-issued on first visit.
-*.dukanbot.website {
+# Client subdomains: <slug>.lanesite.pro -> /opt/www/published/<slug>
+# Wildcard DNS (*.lanesite.pro) must point here. TLS certs auto-issued on first visit.
+*.lanesite.pro, *.dukanbot.website {
 	import common
 	tls {
 		on_demand
 	}
 	map {http.request.host} {slug} {
-		~^(?P<sub>[a-z0-9-]+)\.dukanbot\.website$ ${sub}
+		~^(?P<sub>[a-z0-9-]+)\.(lanesite\.pro|dukanbot\.website)$ ${sub}
 		default ""
 	}
 	handle /_api/* {
@@ -53,6 +58,11 @@ preview.dukanbot.website {
 	}
 	handle {
 		root * /opt/www/published/{slug}
+		@indexHtml path /index.html
+		redir @indexHtml / 301
+		@extHtml path_regexp html ^/(.+)\.html$
+		redir @extHtml /{re.html.1} 301
+		try_files {path} {path}.html {path}/ =404
 		file_server
 	}
 }

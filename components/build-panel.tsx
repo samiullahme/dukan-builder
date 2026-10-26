@@ -3,6 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, StatusBadge } from "./ui";
+import {
+  deriveBuildProgress,
+  type BuildProgressView,
+  type CustomerStageState,
+} from "@/lib/failures";
+
+type TechnicalSummary = {
+  modelsUsed: string[];
+  chain: string | null;
+  tokenNotes: string[];
+};
 
 type Build = {
   id: string;
@@ -12,29 +23,10 @@ type Build = {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+  progress?: BuildProgressView;
+  technical?: TechnicalSummary;
   revertable?: boolean;
 };
-
-function lastLogLine(log: string): string {
-  const lines = (log || "").trim().split("\n").filter(Boolean);
-  return (lines[lines.length - 1] || "").replace(/^\[[^\]]+\]\s*/, "");
-}
-
-function stageLabel(status: string, line: string): string {
-  if (status === "queued") return "Queued — starting in a moment";
-  if (!line) return "Starting the build";
-  if (line.includes("analyzing the uploaded design")) return "Reading your design reference";
-  if (line.includes("design plan ready")) return "Design plan ready — fetching photos";
-  if (line.includes("media ready") || line.includes("site.json seeded")) return "Photos ready — starting the AI build";
-  if (line.includes("agent still working")) return "AI is writing your pages";
-  if (line.includes("re-running the browser QA")) return "Final QA check";
-  if (line.includes("asking the AI to fix") || line.startsWith("repair")) return "Fixing issues found by QA";
-  if (line.includes("running the browser QA") || line.includes("QA:")) return "Running browser QA";
-  if (line.includes("agent idle") || line.includes("restored")) return "Checking pages and dashboards";
-  if (line.includes("finished")) return "Finishing up";
-  if (line.includes("FAILED")) return "Build failed";
-  return line.length > 80 ? line.slice(0, 77) + "…" : line;
-}
 
 function parseDbTime(value: string | null): number {
   return value ? Date.parse(value.replace(" ", "T") + "Z") : NaN;
@@ -48,7 +40,23 @@ function durationLabel(start: string | null, end: string | null): string | null 
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; siteStatus: string; quotaLeft: number }) {
+function stateBadgeClass(state: CustomerStageState): string {
+  if (state === "done") return "bg-emerald-100 text-emerald-800";
+  if (state === "doing") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-500";
+}
+
+export function BuildPanel({
+  siteId,
+  siteStatus,
+  quotaLeft,
+  isAdmin = false,
+}: {
+  siteId: string;
+  siteStatus: string;
+  quotaLeft: number;
+  isAdmin?: boolean;
+}) {
   const router = useRouter();
   const [builds, setBuilds] = useState<Build[]>([]);
   const [busy, setBusy] = useState(false);
@@ -67,12 +75,16 @@ export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; 
     wasActive.current = nowActive;
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     const active = builds.some((b) => b.status === "queued" || b.status === "building");
     if (!active) return;
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [builds]);
 
   const startBuild = async () => {
@@ -83,8 +95,8 @@ export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not start the build.");
       await load();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not start the build.");
     } finally {
       setBusy(false);
     }
@@ -93,7 +105,12 @@ export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; 
   const revertBuild = async (buildId: string) => {
     const when = builds.find((b) => b.id === buildId)?.created_at;
     const whenText = when ? new Date(when + "Z").toLocaleString() : "that version";
-    if (!window.confirm(`Revert the site to the version from ${whenText}? The current version will be replaced${siteStatus === "published" ? " and the live site will be updated" : ""}.`)) return;
+    if (
+      !window.confirm(
+        `Revert the site to the version from ${whenText}? The current version will be replaced${siteStatus === "published" ? " and the live site will be updated" : ""}.`
+      )
+    )
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -101,8 +118,8 @@ export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not revert.");
       await load();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not revert.");
     } finally {
       setBusy(false);
     }
@@ -111,10 +128,12 @@ export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; 
   const active = builds.some((b) => b.status === "queued" || b.status === "building");
   const activeBuild = builds.find((b) => b.status === "queued" || b.status === "building");
   const latest = builds[0];
-  const activeLine = activeBuild ? lastLogLine(activeBuild.log) : "";
-  const startedMs = activeBuild ? parseDbTime(activeBuild.started_at || activeBuild.created_at) : NaN;
-  const elapsed = Number.isFinite(startedMs) ? Math.max(0, Math.floor((Date.now() - startedMs) / 1000)) : 0;
-  const elapsedText = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+  const displayBuild = activeBuild || latest;
+
+  const progress = displayBuild
+    ? displayBuild.progress ?? deriveBuildProgress(displayBuild.status, displayBuild.log || "", 0)
+    : null;
+  const estimatedRemaining = progress?.estimatedRemaining ?? null;
 
   return (
     <Card className="p-6">
@@ -138,21 +157,85 @@ export function BuildPanel({ siteId, siteStatus, quotaLeft }: { siteId: string; 
         {busy ? "Starting…" : active ? "Build in progress…" : latest ? "Rebuild website" : "✨ Build my website"}
       </Button>
 
-      {activeBuild && (
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+      {displayBuild && progress && (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {activeBuild && (
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+              )}
+              <span className="text-sm font-medium text-slate-800">{progress.currentSentence}</span>
+            </div>
+            <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600 shadow-2xs">
+              {progress.remainingCount} remaining
             </span>
-            <span className="text-sm font-medium text-slate-700">
-              {stageLabel(activeBuild.status, activeLine)}
-            </span>
-            <span className="ml-auto font-mono text-xs tabular-nums text-slate-400">{elapsedText}</span>
           </div>
-          <p className="mt-1.5 pl-4 text-xs text-slate-500">
-            Builds usually take 8–15 minutes on the free AI model. This panel updates automatically.
-          </p>
+
+          {estimatedRemaining && (
+            <p className="mt-1.5 text-xs text-slate-500">{estimatedRemaining}</p>
+          )}
+
+          <ol className="mt-3 space-y-1.5 border-t border-slate-200/80 pt-3">
+            {progress.stages.map((stage) => (
+              <li
+                key={stage.number}
+                className="flex items-center justify-between gap-2 text-xs"
+              >
+                <span
+                  className={
+                    stage.state === "done"
+                      ? "text-slate-700"
+                      : stage.state === "doing"
+                        ? "font-semibold text-slate-900"
+                        : "text-slate-400"
+                  }
+                >
+                  {stage.number}. {stage.label}
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${stateBadgeClass(stage.state)}`}
+                >
+                  {stage.state}
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          {isAdmin && (displayBuild.log || displayBuild.technical) && (
+            <details className="mt-3 border-t border-slate-200/80 pt-2.5 text-xs text-slate-600">
+              <summary className="cursor-pointer font-semibold text-slate-700 hover:text-slate-900">
+                Details (admin only)
+              </summary>
+              <div className="mt-2 space-y-1.5">
+                {displayBuild.technical?.chain && (
+                  <p>
+                    <span className="font-medium text-slate-500">Model chain:</span>{" "}
+                    <span className="font-mono">{displayBuild.technical.chain}</span>
+                  </p>
+                )}
+                {displayBuild.technical?.modelsUsed && displayBuild.technical.modelsUsed.length > 0 && (
+                  <p>
+                    <span className="font-medium text-slate-500">Active model(s):</span>{" "}
+                    <span className="font-mono">{displayBuild.technical.modelsUsed.join(", ")}</span>
+                  </p>
+                )}
+                {displayBuild.technical?.tokenNotes && displayBuild.technical.tokenNotes.length > 0 && (
+                  <p>
+                    <span className="font-medium text-slate-500">Tokens:</span>{" "}
+                    <span className="font-mono">{displayBuild.technical.tokenNotes.join(", ")}</span>
+                  </p>
+                )}
+                {displayBuild.log && (
+                  <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-slate-900 p-2.5 font-mono text-[11px] text-slate-100">
+                    {displayBuild.log}
+                  </pre>
+                )}
+              </div>
+            </details>
+          )}
         </div>
       )}
 

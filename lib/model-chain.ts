@@ -4,7 +4,7 @@
  * their standard API-key env vars. A model whose provider has no credentials
  * is skipped instead of being tried and failing with an auth error.
  */
-const PROVIDER_KEY_VARS: Record<string, string> = {
+export const PROVIDER_KEY_VARS: Record<string, string> = {
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
@@ -19,6 +19,10 @@ const PROVIDER_KEY_VARS: Record<string, string> = {
 
 export function providerOf(model: string): string {
   return model.split("/")[0] || "";
+}
+
+export function providerKeyForModel(model: string): string | undefined {
+  return PROVIDER_KEY_VARS[providerOf(model)];
 }
 
 export function isModelUsable(model: string): { ok: boolean; reason?: string } {

@@ -313,14 +313,14 @@
   function logout() {
     localStorage.removeItem("dukan_admin_token");
     localStorage.removeItem("dukan_admin_user");
-    location.replace("admin-login.html");
+    location.replace("admin-login");
   }
 
   document.addEventListener("DOMContentLoaded", function () {
     if (!window.DukanStore) return;
     var t = token();
     if (!t) {
-      location.replace("admin-login.html");
+      location.replace("admin-login");
       return;
     }
     fetch("/_api/site-auth/verify?token=" + encodeURIComponent(t))
@@ -337,7 +337,7 @@
       .catch(function () {
         localStorage.removeItem("dukan_admin_token");
         localStorage.removeItem("dukan_admin_user");
-        location.replace("admin-login.html");
+        location.replace("admin-login");
       });
   });
 

@@ -54,7 +54,7 @@ export async function getDomainRows(): Promise<DomainRow[]> {
     if (s.status === "published") {
       domains.push({
         site_id: s.id, business_name: s.business_name, kind: "subdomain",
-        domain: `${s.slug}.dukanbot.website`, published: true, status: "unchecked", detail: null,
+        domain: `${s.slug}.lanesite.pro`, published: true, status: "unchecked", detail: null,
       });
     }
     if (s.custom_domain) {

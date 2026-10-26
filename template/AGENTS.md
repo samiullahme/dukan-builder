@@ -38,14 +38,14 @@ change, but the attributes/IDs must stay):
 - `data-slot-href="tel:phone"` on at least one call link and
   `data-slot-href="wa:phone"` on the WhatsApp link.
 - `id="services-grid"` and `id="gallery"` containing `id="gallery-grid"`.
-- Navigation links to `index.html`, `services.html`, `gallery.html`,
-  `about.html`, `contact.html`, `login.html`.
-- At least one link to `contact.html#book` (the booking form).
+- Navigation links to `/`, `services`, `gallery`,
+  `about`, `contact`, `login`.
+- At least one link to `contact#book` (the booking form).
 - The footer newsletter form: `id="newsletter-form"` with a `name="email"`
   input and a submit button.
 - `.js-auth-link` on the sign-in/dashboard link.
 
-The booking form itself lives on `contact.html` and is generated from the
+The booking form itself lives on `contact.html` (served at `/contact`) and is generated from the
 business category; do not duplicate it.
 
 ## Header and footer are shared by every page
@@ -73,7 +73,7 @@ Rules for the shared chrome:
 - The footer must contain the newsletter form (`id="newsletter-form"` with a
   `name="email"` input and a submit button).
 - The header and footer are copied to every page, so everything in them must
-  work from any page. Link to homepage sections as `index.html#section`, not a
+  work from any page. Link to homepage sections as `/#section`, not a
   bare `#section`.
 - No inline scripts, homepage-only widgets or elements that depend on a
   homepage section inside the header/footer. Icons must be inline SVG.

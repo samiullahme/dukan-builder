@@ -1,5 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import crypto from "crypto";
+import { buildAgentEnv } from "./agent-env";
+import { writeOpenCodeConfig } from "./opencode-config";
 
 /**
  * Thin client for `opencode serve` (verified against opencode 1.19.0's live
@@ -25,11 +27,13 @@ function basicAuth(h: ServeHandle): string {
   return "Basic " + Buffer.from(`${h.username}:${h.password}`).toString("base64");
 }
 
-export async function startServe(workspaceDir: string): Promise<ServeHandle> {
+export async function startServe(workspaceDir: string, models: readonly string[] = []): Promise<ServeHandle> {
+  const initialModel = models[0] || process.env.OPENCODE_MODEL || "opencode/qwen3.6-plus-free";
+  writeOpenCodeConfig(workspaceDir, initialModel);
   const password = crypto.randomBytes(24).toString("hex");
-  const proc = spawn(OPENCODE_BIN, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
+  const proc = spawn(process.env.OPENCODE_BIN || OPENCODE_BIN, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
     cwd: workspaceDir,
-    env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
+    env: { ...buildAgentEnv(models), OPENCODE_SERVER_PASSWORD: password },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -234,27 +238,6 @@ export async function waitForIdle(
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
   return "timeout";
-}
-
-async function autoReplyPermission(
-  h: ServeHandle,
-  sessionId: string,
-  props: any,
-  onEvent?: (type: string, detail: string) => void
-): Promise<void> {
-  const requestId: string = props.id;
-  const action: string = String(props.action || "");
-  // Deny anything that reaches outside the project; allow the rest.
-  const reply = action === "external_directory" ? "deny" : "allow";
-  onEvent?.("permission", `${action} -> ${reply}`);
-  try {
-    await ocJson(h, `/api/session/${sessionId}/permission/${requestId}/reply`, {
-      method: "POST",
-      body: JSON.stringify({ reply }),
-    });
-  } catch (e: any) {
-    onEvent?.("permission", "reply failed: " + e.message);
-  }
 }
 
 export async function stopServe(h: ServeHandle): Promise<void> {

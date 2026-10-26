@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
-import db from "../lib/db";
+import db, { tx } from "../lib/db";
 import {
   startServe,
   createSession,
@@ -13,18 +13,35 @@ import {
   lastAssistantText,
 } from "../lib/agent";
 import { renderBuildPrompt, renderRefinePrompt } from "../lib/prompts";
-import { analyzeDesign, paletteFromPlan, type DesignPlan } from "../lib/vision";
+import {
+  analyzeDesign,
+  hashImageBytes,
+  paletteFromPlan,
+  parseMatchingDesignPlan,
+  type DesignPlan,
+} from "../lib/vision";
 import { fetchSiteMedia, isSiteMedia, type SiteMedia } from "../lib/media";
 import { normalizeCategory } from "../lib/categories";
-import { classifyFailure } from "../lib/failures";
+import { classifyFailure, shouldRefundQuota, type FailureReason } from "../lib/failures";
 import { usableModels } from "../lib/model-chain";
 import { syncChrome } from "../lib/chrome";
 import { snapshotBuild, restoreSnapshot, pruneHistory, hasSnapshot } from "../lib/history";
 import { publishWorkspace } from "../lib/publish";
+import { writeOpenCodeConfig } from "../lib/opencode-config";
+import { sanitizeWorkspace } from "../lib/workspace-security";
 
 const TENANTS_ROOT = process.env.TENANTS_ROOT || "/opt/tenants";
-const BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS || 1_800_000);
-const REPAIR_TIMEOUT_MS = Number(process.env.REPAIR_TIMEOUT_MS || 600_000);
+export const MAX_TOTAL_AGENT_MS = 20 * 60_000;
+export const FIRST_ATTEMPT_CAP_MS = 12 * 60_000;
+export const FALLBACK_ATTEMPT_CAP_MS = 8 * 60_000;
+const BUILD_TIMEOUT_MS = Math.min(
+  Number(process.env.BUILD_TIMEOUT_MS || MAX_TOTAL_AGENT_MS),
+  MAX_TOTAL_AGENT_MS
+);
+const REPAIR_TIMEOUT_MS = Math.min(
+  Number(process.env.REPAIR_TIMEOUT_MS || 600_000),
+  MAX_TOTAL_AGENT_MS
+);
 // Models tried in order; a failed or timed-out model falls through to the
 // next one so a provider hiccup can't kill a build. Entries are
 // provider-qualified, so OpenCode free models and paid providers can be mixed
@@ -40,8 +57,9 @@ const CONFIGURED_BUILD_MODELS = (
 const QA_SCRIPT = process.env.QA_SCRIPT || "/opt/builder/qa/qa-check.cjs";
 const POLL_MS = 8000;
 const EDITABLE = new Set(["site.json", "index.html", "styles.css"]);
+const MAX_CONCURRENT_BUILDS = Math.max(1, Number(process.env.MAX_CONCURRENT_BUILDS || 2));
 
-let active = false;
+let activeBuildsCount = 0;
 
 // Log appends are serialized per build so lines never interleave out of order.
 const logChain = new Map<string, Promise<void>>();
@@ -60,125 +78,227 @@ function appendStage(buildId: string, stage: string): Promise<void> {
   return appendLog(buildId, `[stage:${stage}]`);
 }
 
-function writeModelConfig(workspace: string, model: string): void {
-  const cfg: Record<string, any> = {
-    model,
-    permission: {
-      read: "allow",
-      edit: "allow",
-      glob: "allow",
-      grep: "allow",
-      list: "allow",
-      bash: "allow",
-      external_directory: "deny",
-    },
-  };
-  // A generic OpenAI-compatible endpoint isn't in OpenCode's provider
-  // registry, so it must be declared. The key stays an env reference — no
-  // secret is written into the workspace.
-  const [provider, ...rest] = model.split("/");
-  const modelId = rest.join("/");
-  if (provider === "custom" && process.env.CUSTOM_BASE_URL) {
-    cfg.provider = {
-      custom: {
-        npm: "@ai-sdk/openai-compatible",
-        name: process.env.CUSTOM_PROVIDER_NAME || "Custom provider",
-        options: {
-          baseURL: process.env.CUSTOM_BASE_URL,
-          apiKey: "{env:CUSTOM_API_KEY}",
-        },
-        models: { [modelId]: { name: modelId } },
-      },
-    };
-  }
-  if (provider === "freellmapi" && process.env.FREELLMAPI_BASE_URL) {
-    cfg.provider = {
-      freellmapi: {
-        npm: "@ai-sdk/openai-compatible",
-        name: "FreeLLMAPI",
-        options: {
-          baseURL: process.env.FREELLMAPI_BASE_URL,
-          apiKey: "{env:FREELLMAPI_KEY}",
-        },
-        models: { [modelId]: { name: modelId } },
-      },
-    };
-  }
-  fs.writeFileSync(path.join(workspace, "opencode.json"), JSON.stringify(cfg, null, 2));
+function ensureOpencodeConfig(workspace: string, model: string): void {
+  writeOpenCodeConfig(workspace, model);
 }
 
-type TurnOutcome = {
+export type TurnOutcome = {
   result: "idle" | "error" | "timeout";
   sessionId: string;
+  assistantReply: string | null;
   failedModels: string[];
+  attemptTimeoutsMs: number[];
+  elapsedMs: number;
 };
+
+export type RunAgentTurnOptions = {
+  maxTotalMs?: number;
+  nowFn?: () => number;
+};
+
+const EDITABLE_FILES = ["index.html", "styles.css", "site.json"] as const;
+
+/** Snapshot the 3 editable files (index.html, styles.css, site.json) before an agent turn. */
+export function snapshotEditable(workspace: string): Map<string, Buffer | null> {
+  const snap = new Map<string, Buffer | null>();
+  for (const name of EDITABLE_FILES) {
+    const p = path.join(workspace, name);
+    try {
+      snap.set(name, fs.existsSync(p) && fs.lstatSync(p).isFile() ? fs.readFileSync(p) : null);
+    } catch {
+      snap.set(name, null);
+    }
+  }
+  return snap;
+}
+
+/** Restore the 3 editable files (index.html, styles.css, site.json) from a pre-turn snapshot. */
+export function restoreEditable(workspace: string, snap: Map<string, Buffer | null>): number {
+  let restored = 0;
+  for (const [name, buf] of snap) {
+    if (!EDITABLE.has(name)) continue;
+    const p = path.join(workspace, name);
+    if (buf === null) {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { force: true });
+        restored++;
+      }
+      continue;
+    }
+    let current: Buffer | null = null;
+    try {
+      current = fs.existsSync(p) ? fs.readFileSync(p) : null;
+    } catch {
+      current = null;
+    }
+    if (!current || !current.equals(buf)) {
+      fs.writeFileSync(p, buf);
+      restored++;
+    }
+  }
+  return restored;
+}
 
 /**
  * Prompt the agent and wait for the turn to finish, falling back to the next
- * free model when one errors or times out. Each fallback attempt gets a fresh
- * session so a dead session can't poison the retry.
+ * free model when one errors or times out. Each turn and fallback attempt
+ * starts a fresh `opencode serve` instance and session so server state or
+ * config edits can never carry over across turns or builds. Before any
+ * fallback model runs, the 3 editable files (index.html, styles.css, site.json)
+ * are restored from the pre-turn snapshot. Total agent time is capped at 20
+ * minutes per build, with each fallback attempt capped lower than the first.
  */
-async function runAgentTurn(
+export async function runAgentTurn(
   buildId: string,
   workspace: string,
-  serve: Awaited<ReturnType<typeof startServe>>,
-  reuseSessionId: string | null,
   prompt: string,
   timeoutMs: number,
   title: string,
-  models: string[]
+  models: string[],
+  opts: RunAgentTurnOptions = {}
 ): Promise<TurnOutcome> {
+  const now = opts.nowFn ?? Date.now;
+  const turnStartMs = now();
+  const totalCapMs = Math.max(0, Math.min(timeoutMs, opts.maxTotalMs ?? MAX_TOTAL_AGENT_MS));
+  const firstAttemptCapMs = Math.max(1, Math.floor(totalCapMs * 0.6));
+  const fallbackMaxCapMs = Math.max(1, Math.min(firstAttemptCapMs - 1, Math.floor(totalCapMs * 0.4)));
+  const editableSnapshot = snapshotEditable(workspace);
+
   const failedModels: string[] = [];
+  const attemptTimeoutsMs: number[] = [];
+
   for (let attempt = 0; attempt < models.length; attempt++) {
+    const elapsedBeforeAttempt = Math.max(0, now() - turnStartMs);
+    const remainingMs = totalCapMs - elapsedBeforeAttempt;
+    if (remainingMs <= 0) {
+      await appendLog(buildId, "total agent time cap reached — not starting another fallback model");
+      break;
+    }
+
+    if (attempt > 0) {
+      const restoredCount = restoreEditable(workspace, editableSnapshot);
+      await appendLog(
+        buildId,
+        `restored ${restoredCount} editable file(s) from pre-turn snapshot before fallback`
+      );
+    }
+
+    const attemptTimeoutMs =
+      attempt === 0
+        ? Math.min(firstAttemptCapMs, remainingMs)
+        : Math.min(fallbackMaxCapMs, remainingMs);
+    attemptTimeoutsMs.push(attemptTimeoutMs);
+
     const model = models[attempt];
     try {
-      writeModelConfig(workspace, model);
+      ensureOpencodeConfig(workspace, model);
     } catch (e: any) {
       await appendLog(buildId, "could not write opencode.json: " + e.message);
     }
-    let sessionId: string | null = attempt === 0 ? reuseSessionId : null;
-    if (sessionId) {
-      await appendLog(buildId, "reusing agent session " + sessionId);
-    } else {
-      sessionId = await createSession(serve, `${title}${attempt ? ` — ${model}` : ""}`);
+    const serve = await startServe(workspace, [model]);
+    try {
+      await appendLog(buildId, `opencode serve listening on 127.0.0.1:${serve.port}`);
+      const sessionId = await createSession(serve, `${title}${attempt ? ` — ${model}` : ""}`);
       await db.prepare(`UPDATE builds SET opencode_session_id = ? WHERE id = ?`).run(sessionId, buildId);
       await appendLog(buildId, "agent session " + sessionId);
-    }
-    const idleMark = await getSessionIdleMark(sessionId);
-    const sentAt = Date.now();
-    await appendLog(buildId, `agent model: ${model}${attempt ? " (fallback)" : ""}`);
-    await promptAsync(serve, sessionId, prompt);
-    const timeoutMin = Math.round(timeoutMs / 60_000);
-    await appendLog(buildId, `prompt sent, waiting for the agent to go idle (up to ${timeoutMin} min)…`);
-    const result = await waitForIdle(serve, sessionId, timeoutMs, idleMark, (t, d) => {
-      void appendLog(buildId, `${t}: ${d}`);
-    });
-    await appendLog(buildId, `agent ${result} after ${Math.round((Date.now() - sentAt) / 1000)}s`);
-    if (result === "idle") return { result, sessionId, failedModels };
-    failedModels.push(`${model} (${result})`);
-    if (result === "timeout") {
-      try { await abortSession(serve, sessionId); } catch { /* best effort */ }
-    }
-    if (attempt + 1 < models.length) {
-      await appendLog(buildId, `model ${model} failed — falling back to ${models[attempt + 1]}…`);
+      const idleMark = await getSessionIdleMark(sessionId);
+      const sentAt = now();
+      await appendLog(buildId, `agent model: ${model}${attempt ? " (fallback)" : ""}`);
+      await promptAsync(serve, sessionId, prompt);
+      const timeoutMin = Math.max(1, Math.round(attemptTimeoutMs / 60_000));
+      await appendLog(buildId, `prompt sent, waiting for the agent to go idle (up to ${timeoutMin} min)…`);
+      const result = await waitForIdle(serve, sessionId, attemptTimeoutMs, idleMark, (t, d) => {
+        void appendLog(buildId, `${t}: ${d}`);
+      });
+      await appendLog(buildId, `agent ${result} after ${Math.round((now() - sentAt) / 1000)}s`);
+      if (result === "idle") {
+        const assistantReply = await lastAssistantText(serve, sessionId);
+        return {
+          result,
+          sessionId,
+          assistantReply,
+          failedModels,
+          attemptTimeoutsMs,
+          elapsedMs: Math.max(0, now() - turnStartMs),
+        };
+      }
+      failedModels.push(`${model} (${result})`);
+      if (result === "timeout") {
+        try { await abortSession(serve, sessionId); } catch { /* best effort */ }
+      }
+      if (attempt + 1 < models.length) {
+        if (totalCapMs - Math.max(0, now() - turnStartMs) <= 0) {
+          await appendLog(
+            buildId,
+            `model ${model} failed and total agent time cap reached — stopping fallback chain`
+          );
+          break;
+        }
+        await appendLog(buildId, `model ${model} failed — falling back to ${models[attempt + 1]}…`);
+      }
+    } finally {
+      await stopServe(serve);
     }
   }
-  return { result: "error", sessionId: "", failedModels };
+  return {
+    result: "error",
+    sessionId: "",
+    assistantReply: null,
+    failedModels,
+    attemptTimeoutsMs,
+    elapsedMs: Math.max(0, now() - turnStartMs),
+  };
 }
 
-async function failBuild(buildId: string, siteId: string, msg: string): Promise<void> {
+export async function failBuild(
+  buildId: string,
+  siteId: string,
+  msg: string,
+  opts: { userId?: string; buildKind?: string; quotaConsumed?: boolean } = {}
+): Promise<FailureReason> {
+  const reason = classifyFailure(msg);
   await appendLog(buildId, `[stage:failed] FAILED: ${msg}`);
-  await db
-    .prepare(`UPDATE builds SET status = 'failed', finished_at = now(), failure_reason = ? WHERE id = ?`)
-    .run(classifyFailure(msg), buildId);
-  await db.prepare(`UPDATE sites SET status = 'draft' WHERE id = ?`).run(siteId);
+
+  const kind = opts.buildKind ?? "build";
+  const consumed = opts.quotaConsumed ?? true;
+  const refundable = consumed && shouldRefundQuota(reason, kind);
+
+  // The failed-status transition and the quota refund commit together, and the
+  // refund only happens when this call is the one that moved the build into
+  // 'failed'. A repeated failBuild for the same build never refunds again.
+  const refunded = await tx(async (t) => {
+    const { changes } = await t
+      .prepare(
+        `UPDATE builds SET status = 'failed', finished_at = now(), failure_reason = ? WHERE id = ? AND status <> 'failed'`
+      )
+      .run(reason, buildId);
+    await t.prepare(`UPDATE sites SET status = 'draft' WHERE id = ?`).run(siteId);
+    if (changes === 0 || !refundable) return false;
+
+    let userId = opts.userId;
+    if (!userId) {
+      const s = await t.prepare(`SELECT user_id FROM sites WHERE id = ?`).get<{ user_id: string }>(siteId);
+      userId = s?.user_id;
+    }
+    if (!userId) return false;
+    await t.prepare(`UPDATE quota SET builds_used = GREATEST(0, builds_used - 1) WHERE user_id = ?`).run(userId);
+    return true;
+  });
+  if (refunded) await appendLog(buildId, `refunded 1 build quota unit (reason: ${reason})`);
+  return reason;
 }
 
-/** Snapshot every file the agent is not allowed to change (top level). */
-function snapshotLocked(workspace: string): Map<string, Buffer> {
+/** Snapshot every file the agent is not allowed to change (top level), including opencode.json. */
+export function snapshotLocked(
+  workspace: string,
+  model: string = CONFIGURED_BUILD_MODELS[0] || "opencode/qwen3.6-plus-free"
+): Map<string, Buffer> {
+  if (!fs.existsSync(path.join(workspace, "opencode.json"))) {
+    ensureOpencodeConfig(workspace, model);
+  }
   const snap = new Map<string, Buffer>();
   for (const name of fs.readdirSync(workspace)) {
-    if (EDITABLE.has(name) || name === "opencode.json" || name === "design") continue;
+    if (EDITABLE.has(name) || name === "design") continue;
     const p = path.join(workspace, name);
     try {
       if (fs.lstatSync(p).isFile()) snap.set(name, fs.readFileSync(p));
@@ -192,8 +312,9 @@ function snapshotLocked(workspace: string): Map<string, Buffer> {
 /** Public pages that must share the homepage's header and footer. */
 const CHROME_PAGES = ["about.html", "services.html", "gallery.html", "contact.html"];
 
-/** Undo any edits the agent made to locked files and remove invented pages/scripts. */
-function restoreLocked(workspace: string, snap: Map<string, Buffer>): number {
+/** Undo any edits the agent made to locked files (including opencode.json) and remove invented pages/scripts. */
+export function restoreLocked(workspace: string, snap: Map<string, Buffer>): number {
+  sanitizeWorkspace(workspace);
   let restored = 0;
   for (const [name, buf] of snap) {
     const p = path.join(workspace, name);
@@ -217,38 +338,87 @@ function restoreLocked(workspace: string, snap: Map<string, Buffer>): number {
   return restored;
 }
 
-async function prepareDesign(
+export async function prepareDesign(
   buildId: string,
   workspace: string,
   brief: any
 ): Promise<DesignPlan | null> {
+  const designDir = path.join(workspace, "design");
+  const refs = fs.existsSync(designDir)
+    ? fs.readdirSync(designDir).filter((f) => /^reference\.(png|jpg|jpeg|webp)$/i.test(f))
+    : [];
+
   let plan: DesignPlan | null = null;
-  if (brief?.design_plan) {
+  if (refs.length) {
+    const imagePath = path.join(designDir, refs[0]);
+    const imageHash = hashImageBytes(imagePath);
+
+    // 1. Check current brief's stored design_plan
+    plan = parseMatchingDesignPlan(brief?.design_plan, imageHash);
+
+    // 2. Check workspace design/plan.json
+    const planFilePath = path.join(designDir, "plan.json");
+    if (!plan && fs.existsSync(planFilePath)) {
+      try {
+        plan = parseMatchingDesignPlan(fs.readFileSync(planFilePath, "utf8"), imageHash);
+      } catch {
+        plan = null;
+      }
+    }
+
+    // 3. Check existing briefs.design_plan rows in the database (re-uploading same image across sites/briefs)
+    if (!plan) {
+      try {
+        const rows = await db
+          .prepare(`SELECT design_plan FROM briefs WHERE design_plan IS NOT NULL AND design_plan != ''`)
+          .all<{ design_plan: string }>();
+        for (const row of rows) {
+          const matched = parseMatchingDesignPlan(row.design_plan, imageHash);
+          if (matched) {
+            plan = matched;
+            break;
+          }
+        }
+      } catch {
+        // non-fatal DB lookup failure
+      }
+    }
+
+    if (plan) {
+      await appendLog(buildId, `reusing cached design plan (image hash ${imageHash.slice(0, 12)})`);
+      if (brief?.site_id && parseMatchingDesignPlan(brief?.design_plan, imageHash) === null) {
+        await db.prepare(`UPDATE briefs SET design_plan = ? WHERE site_id = ?`).run(
+          JSON.stringify(plan),
+          brief.site_id
+        );
+      }
+    } else {
+      await appendLog(buildId, "analyzing the uploaded design reference with the vision model…");
+      const res = await analyzeDesign(imagePath, workspace);
+      if (res.ok) {
+        plan = { ...res.plan, image_hash: imageHash };
+        if (brief?.site_id) {
+          await db.prepare(`UPDATE briefs SET design_plan = ? WHERE site_id = ?`).run(
+            JSON.stringify(plan),
+            brief.site_id
+          );
+        }
+        await appendLog(
+          buildId,
+          `design plan ready: style "${plan.style || "n/a"}", ${plan.sections.length} sections, ${plan.color_palette.length} colours`
+        );
+      } else {
+        await appendLog(buildId, "vision analysis skipped: " + res.error);
+      }
+    }
+  } else if (brief?.design_plan) {
     try {
       plan = JSON.parse(brief.design_plan);
     } catch {
       plan = null;
     }
   }
-  const designDir = path.join(workspace, "design");
-  const refs = fs.existsSync(designDir)
-    ? fs.readdirSync(designDir).filter((f) => /^reference\.(png|jpg|jpeg|webp)$/i.test(f))
-    : [];
-  if (!plan && refs.length) {
-    const imagePath = path.join(designDir, refs[0]);
-    await appendLog(buildId, "analyzing the uploaded design reference with the vision model…");
-    const res = await analyzeDesign(imagePath, workspace);
-    if (res.ok) {
-      plan = res.plan;
-      await db.prepare(`UPDATE briefs SET design_plan = ? WHERE site_id = ?`).run(
-        JSON.stringify(plan),
-        brief.site_id
-      );
-      await appendLog(buildId, `design plan ready: style "${plan.style || "n/a"}", ${plan.sections.length} sections, ${plan.color_palette.length} colours`);
-    } else {
-      await appendLog(buildId, "vision analysis skipped: " + res.error);
-    }
-  }
+
   if (plan) {
     try {
       fs.mkdirSync(designDir, { recursive: true });
@@ -260,8 +430,30 @@ async function prepareDesign(
   return plan;
 }
 
+export const MEDIA_DOWNLOAD_CONCURRENCY = 4;
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: limit }, async () => {
+    while (true) {
+      const idx = nextIndex++;
+      if (idx >= items.length) break;
+      results[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /** Write the pre-fetched media (and design palette) into site.json. */
-function mergeMedia(
+export function mergeMedia(
   workspace: string,
   site: any,
   media: SiteMedia | null,
@@ -328,8 +520,11 @@ function localMediaOk(p: string): boolean {
  * a rebuilt-from-scratch workspace can re-download. Slots whose download
  * fails fall back down the hero -> about -> gallery chain, and a merge with
  * almost nothing localized signals expired links to the caller.
+ *
+ * Hero, about, and gallery images download in parallel with a concurrency
+ * limit of at most 4 while preserving gallery order in site.json.
  */
-async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteMedia> {
+export async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteMedia> {
   const dir = path.join(workspace, "media");
   fs.mkdirSync(dir, { recursive: true });
   const ext = (u: string, fallback: string) => {
@@ -344,13 +539,17 @@ async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteM
     return (await downloadMediaFile(url, dest)) ? "/media/" + name : "";
   };
 
-  const hero = await grab("hero", media.hero_image, ".jpg");
-  const about = await grab("about", media.about_image, ".jpg");
-  const gallery: string[] = [];
-  for (let i = 0; i < media.gallery.length; i++) {
-    const local = await grab("g" + i, media.gallery[i], ".jpg");
-    if (local) gallery.push(local);
-  }
+  const imageTasks = [
+    { slot: "hero", url: media.hero_image },
+    { slot: "about", url: media.about_image },
+    ...media.gallery.map((url, i) => ({ slot: "g" + i, url })),
+  ];
+  const [hero, about, ...rawGallery] = await mapWithConcurrency(
+    imageTasks,
+    MEDIA_DOWNLOAD_CONCURRENCY,
+    (task) => grab(task.slot, task.url, ".jpg")
+  );
+  const gallery = rawGallery.filter(Boolean);
   const video = await grab("video", media.hero_video, ".mp4");
 
   const pool = [hero, about, ...gallery].filter(Boolean);
@@ -362,7 +561,7 @@ async function localizeMedia(workspace: string, media: SiteMedia): Promise<SiteM
   return out;
 }
 
-function localizedImageCount(media: SiteMedia): number {
+export function localizedImageCount(media: SiteMedia): number {
   return (media.hero_image ? 1 : 0) + media.gallery.length;
 }
 
@@ -385,11 +584,14 @@ export function startBuildWorker(): void {
  */
 function recoverOrphanedBuilds(): void {
   db
-    .prepare(`SELECT id, site_id FROM builds WHERE status = 'building'`)
-    .all<{ id: string; site_id: string }>()
+    .prepare(`SELECT id, site_id, kind FROM builds WHERE status = 'building'`)
+    .all<{ id: string; site_id: string; kind: string }>()
     .then((rows) => {
       for (const row of rows) {
-        failBuild(row.id, row.site_id, "build was interrupted by a server restart — please build again");
+        void failBuild(row.id, row.site_id, "build was interrupted by a server restart — please build again", {
+          buildKind: row.kind,
+          quotaConsumed: row.kind === "build",
+        });
       }
     })
     .catch((e) => console.error("[build-worker] orphan recovery failed:", e?.message));
@@ -398,12 +600,14 @@ function recoverOrphanedBuilds(): void {
 type QaResult = { ok: boolean; errors: string[]; warnings: number; outDir: string };
 
 async function runSiteQa(workspace: string, buildId: string): Promise<QaResult> {
-  const outDir = path.join("/opt/qa", path.basename(workspace), buildId);
+  const qaOutRoot = process.env.QA_OUT_ROOT || "/opt/qa";
+  const qaScript = process.env.QA_SCRIPT || QA_SCRIPT;
+  const outDir = path.join(qaOutRoot, path.basename(workspace), buildId);
   // Async on purpose: the QA browser calls /_api on this same app, so a
   // synchronous run blocks the event loop and every owner/customer API check
   // hangs until QA exits.
   await new Promise<void>((resolve) => {
-    const child = spawn(process.execPath, [QA_SCRIPT, workspace, "--out", outDir], {
+    const child = spawn(process.execPath, [qaScript, workspace, "--out", outDir], {
       env: { ...process.env, HOME: process.env.HOME || "/home/builder" },
       stdio: "ignore",
     });
@@ -438,23 +642,44 @@ async function runSiteQa(workspace: string, buildId: string): Promise<QaResult> 
   return { ok: errors.length === 0, errors, warnings, outDir };
 }
 
+// QA lock: serializes heavy Playwright Chromium browser execution across builds
+// so the VPS memory stays flat and predictable.
+let qaQueue: Promise<void> = Promise.resolve();
+
+export async function runSiteQaExclusive(workspace: string, buildId: string): Promise<QaResult> {
+  let release: () => void = () => {};
+  const current = qaQueue;
+  qaQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await current;
+  try {
+    return await runSiteQa(workspace, buildId);
+  } finally {
+    release();
+  }
+}
+
 async function tick(): Promise<void> {
-  if (active) return;
+  if (activeBuildsCount >= MAX_CONCURRENT_BUILDS) return;
   const row = await db
     .prepare(`SELECT id FROM builds WHERE status = 'queued' ORDER BY created_at LIMIT 1`)
     .get<{ id: string }>();
   if (!row) return;
-  active = true;
-  try {
-    await processBuild(row.id);
-  } catch (e: any) {
-    console.error("[build-worker] processBuild threw:", e?.message);
-  } finally {
-    active = false;
-  }
+  activeBuildsCount++;
+  (async () => {
+    try {
+      await processBuild(row.id);
+    } catch (e: any) {
+      console.error("[build-worker] processBuild threw:", e?.message);
+    } finally {
+      activeBuildsCount = Math.max(0, activeBuildsCount - 1);
+    }
+  })();
 }
 
 async function processRevert(buildId: string, site: any, build: any, workspace: string): Promise<void> {
+  sanitizeWorkspace(workspace);
   const sourceId = String(build.input || "").trim();
   await appendLog(buildId, `reverting "${site.business_name}" to build ${sourceId}`);
   if (!hasSnapshot(workspace, sourceId)) {
@@ -492,7 +717,7 @@ async function processRevert(buildId: string, site: any, build: any, workspace: 
   await db.prepare(`UPDATE sites SET status = ? WHERE id = ?`).run(wasPublished ? "published" : "ready", site.id);
 }
 
-async function processBuild(buildId: string): Promise<void> {
+export async function processBuild(buildId: string): Promise<void> {
   // Atomic claim: only one worker can take a queued build.
   const claimed = await db
     .prepare(`UPDATE builds SET status = 'building', started_at = now() WHERE id = ? AND status = 'queued'`)
@@ -500,23 +725,34 @@ async function processBuild(buildId: string): Promise<void> {
   if (claimed.changes === 0) return;
 
   let siteId = buildId;
-  let serve: Awaited<ReturnType<typeof startServe>> | null = null;
+  let userId: string | undefined;
+  let buildKind = "build";
+  let quotaConsumed = false;
   try {
     const build = await db.prepare(`SELECT * FROM builds WHERE id = ?`).get<any>(buildId);
+    buildKind = build?.kind || "build";
     const site = await db.prepare(`SELECT * FROM sites WHERE id = ?`).get<any>(build.site_id);
     if (!site) {
-      await failBuild(buildId, build.site_id, "site row disappeared");
+      await failBuild(buildId, build.site_id, "site row disappeared", {
+        buildKind,
+        quotaConsumed: false,
+      });
       return;
     }
     siteId = site.id;
+    userId = site.user_id;
     const brief = await db.prepare(`SELECT * FROM briefs WHERE site_id = ?`).get<any>(site.id);
     const quota = await db
       .prepare(`SELECT builds_used, builds_allowed FROM quota WHERE user_id = ?`)
       .get<{ builds_used: number; builds_allowed: number }>(site.user_id);
 
-    const workspace = path.join(TENANTS_ROOT, site.user_id, site.slug);
+    const workspace = path.join(process.env.TENANTS_ROOT || TENANTS_ROOT, site.user_id, site.slug);
     if (!fs.existsSync(path.join(workspace, "index.html"))) {
-      await failBuild(buildId, site.id, "workspace missing: " + workspace);
+      await failBuild(buildId, site.id, "workspace missing: " + workspace, {
+        userId,
+        buildKind,
+        quotaConsumed: false,
+      });
       return;
     }
 
@@ -529,10 +765,15 @@ async function processBuild(buildId: string): Promise<void> {
     // Quota is consumed when a full build starts; chat refinements are free.
     if (build.kind === "build") {
       if ((quota?.builds_used ?? 0) >= (quota?.builds_allowed ?? 5)) {
-        await failBuild(buildId, site.id, "beta build quota exhausted");
+        await failBuild(buildId, site.id, "beta build quota exhausted", {
+          userId,
+          buildKind,
+          quotaConsumed: false,
+        });
         return;
       }
       await db.prepare(`UPDATE quota SET builds_used = builds_used + 1 WHERE user_id = ?`).run(site.user_id);
+      quotaConsumed = true;
     }
 
     await appendStage(buildId, "prepare");
@@ -578,10 +819,6 @@ async function processBuild(buildId: string): Promise<void> {
       }
     }
 
-    // Locked files are restored after every agent turn, so the public pages and
-    // both dashboards cannot be broken by design edits.
-    const lockedSnapshot = snapshotLocked(workspace);
-
     const { usable: buildModels, skipped: skippedModels } = usableModels(CONFIGURED_BUILD_MODELS);
     if (skippedModels.length) {
       await appendLog(
@@ -593,14 +830,17 @@ async function processBuild(buildId: string): Promise<void> {
       await failBuild(
         buildId,
         site.id,
-        "no usable build models — every model in OPENCODE_BUILD_MODELS is missing its API key"
+        "no usable build models — every model in OPENCODE_BUILD_MODELS is missing its API key",
+        { userId, buildKind, quotaConsumed }
       );
       return;
     }
     await appendLog(buildId, "build model chain: " + buildModels.join(" → "));
 
-    serve = await startServe(workspace);
-    await appendLog(buildId, `opencode serve listening on 127.0.0.1:${serve.port}`);
+    // Write the restrictive opencode.json before snapshotting locked files so it
+    // is restored after every agent turn alongside locked pages and scripts.
+    ensureOpencodeConfig(workspace, buildModels[0]);
+    const lockedSnapshot = snapshotLocked(workspace, buildModels[0]);
 
     // business_name lives on `sites`, not `briefs`; the prompt needs both.
     const briefForPrompt = {
@@ -617,20 +857,24 @@ async function processBuild(buildId: string): Promise<void> {
     const turn = await runAgentTurn(
       buildId,
       workspace,
-      serve,
-      build.kind === "refine" ? build.opencode_session_id : null,
       prompt,
       BUILD_TIMEOUT_MS,
       `${site.business_name} — website ${build.kind}`,
       buildModels
     );
-    const sessionId = turn.sessionId;
     if (turn.result !== "idle") {
-      await failBuild(buildId, site.id, `agent failed with every model (${turn.failedModels.join(", ")})`);
+      await failBuild(
+        buildId,
+        site.id,
+        `agent failed with every model (${turn.failedModels.join(", ")})`,
+        { userId, buildKind, quotaConsumed }
+      );
       return;
     }
+    let assistantReply = turn.assistantReply;
 
-    // Locked pages/scripts are the guarantee that forms and dashboards work.
+    await appendStage(buildId, "wiring");
+    // Locked pages/scripts (and opencode.json) are restored after every turn.
     const restored = restoreLocked(workspace, lockedSnapshot);
     if (restored) await appendLog(buildId, `restored ${restored} locked file(s) changed by the agent`);
     const chromeSync = syncChrome(workspace);
@@ -649,7 +893,11 @@ async function processBuild(buildId: string): Promise<void> {
       if (!sj.business_name) throw new Error("site.json has no business_name");
       if (sj.slug !== site.slug) throw new Error("site.json slug changed");
     } catch (e: any) {
-      await failBuild(buildId, site.id, "sanity check failed: " + e.message);
+      await failBuild(buildId, site.id, "sanity check failed: " + e.message, {
+        userId,
+        buildKind,
+        quotaConsumed,
+      });
       return;
     }
 
@@ -658,7 +906,7 @@ async function processBuild(buildId: string): Promise<void> {
     // contrast, links and hydration. One repair turn is allowed.
     await appendStage(buildId, "qa");
     await appendLog(buildId, "running the browser QA check…");
-    let qa = await runSiteQa(workspace, buildId);
+    let qa = await runSiteQaExclusive(workspace, buildId);
     await appendLog(buildId, `QA: ${qa.errors.length} error(s), ${qa.warnings} warning(s) — ${qa.outDir}`);
     if (!qa.ok) {
       for (const err of qa.errors.slice(0, 12)) await appendLog(buildId, "  QA: " + err);
@@ -668,23 +916,38 @@ async function processBuild(buildId: string): Promise<void> {
 ${qa.errors.slice(0, 12).map((e) => "- " + e).join("\n")}
 
 Fix ONLY these problems by editing site.json, index.html and styles.css. Every other file is locked. Keep the design, all business facts, every data-slot / data-slot-attr / data-slot-src / data-slot-href attribute and every required ID intact. Do NOT change media URLs. Do NOT start a server or fetch URLs — QA runs after you. Reply with one line when finished.`;
+      const remainingBuildAgentMs = Math.max(0, MAX_TOTAL_AGENT_MS - turn.elapsedMs);
+      if (remainingBuildAgentMs <= 0) {
+        await failBuild(
+          buildId,
+          site.id,
+          "QA failed and total agent time cap (20m) reached",
+          { userId, buildKind, quotaConsumed }
+        );
+        return;
+      }
       await appendLog(buildId, "asking the AI to fix the QA issues…");
       const repairTurn = await runAgentTurn(
         buildId,
         workspace,
-        serve,
-        sessionId,
         repairPrompt,
-        REPAIR_TIMEOUT_MS,
+        Math.min(REPAIR_TIMEOUT_MS, remainingBuildAgentMs),
         `${site.business_name} — QA repair`,
-        buildModels
+        buildModels,
+        { maxTotalMs: remainingBuildAgentMs }
       );
       const repair = repairTurn.result;
       await appendLog(buildId, `repair agent ${repair}`);
       if (repair !== "idle") {
-        await failBuild(buildId, site.id, `QA failed and the repair turn failed (${repairTurn.failedModels.join(", ")})`);
+        await failBuild(
+          buildId,
+          site.id,
+          `QA failed and the repair turn failed (${repairTurn.failedModels.join(", ")})`,
+          { userId, buildKind, quotaConsumed }
+        );
         return;
       }
+      if (repairTurn.assistantReply) assistantReply = repairTurn.assistantReply;
       const restoredAfterRepair = restoreLocked(workspace, lockedSnapshot);
       if (restoredAfterRepair) await appendLog(buildId, `restored ${restoredAfterRepair} locked file(s) after repair`);
       const chromeAfterRepair = syncChrome(workspace);
@@ -694,32 +957,26 @@ Fix ONLY these problems by editing site.json, index.html and styles.css. Every o
       } catch {
         // QA will surface any remaining site.json problem
       }
-      // The agent server holds a few hundred MB and the final QA decides
-      // pass/fail on a 2GB host — its late flows time out when memory is
-      // tight. Full builds don't need the server after the repair turn.
-      if (serve && build.kind === "build") {
-        await appendLog(buildId, "stopping the agent server to free memory for the final QA");
-        await stopServe(serve);
-        serve = null;
-      }
       await appendLog(buildId, "re-running the browser QA check…");
-      qa = await runSiteQa(workspace, buildId);
+      qa = await runSiteQaExclusive(workspace, buildId);
       await appendLog(buildId, `QA after repair: ${qa.errors.length} error(s), ${qa.warnings} warning(s) — ${qa.outDir}`);
       if (!qa.ok) {
-        await failBuild(buildId, site.id, "QA failed after repair: " + qa.errors[0]);
+        await failBuild(buildId, site.id, "QA failed after repair: " + qa.errors[0], {
+          userId,
+          buildKind,
+          quotaConsumed,
+        });
         return;
       }
     }
 
     // Capture the agent's summary reply for the chat UI (refinements).
-    // Refines keep the agent server alive through QA, so serve is set here.
-    if (build.kind === "refine" && serve) {
-      const reply = await lastAssistantText(serve, sessionId);
+    if (build.kind === "refine") {
       await db.prepare(`INSERT INTO chat_messages (id, site_id, role, content) VALUES (?,?,?,?)`).run(
         cryptoRandomId(),
         site.id,
         "assistant",
-        reply || "Done — I applied your change."
+        assistantReply || "Done — I applied your change."
       );
     }
 
@@ -734,9 +991,12 @@ Fix ONLY these problems by editing site.json, index.html and styles.css. Every o
     await db.prepare(`UPDATE builds SET status = 'ready', finished_at = now() WHERE id = ?`).run(buildId);
     await db.prepare(`UPDATE sites SET status = 'ready' WHERE id = ?`).run(site.id);
   } catch (e: any) {
-    await failBuild(buildId, siteId, e?.message || String(e));
+    await failBuild(buildId, siteId, e?.message || String(e), {
+      userId,
+      buildKind,
+      quotaConsumed,
+    });
   } finally {
-    if (serve) await stopServe(serve);
     logChain.delete(buildId);
   }
 }

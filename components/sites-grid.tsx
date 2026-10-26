@@ -138,7 +138,7 @@ export function SitesGrid({ sites }: { sites: SiteRow[] }) {
                       {s.business_name}
                     </h3>
                     <p className="mt-0.5 truncate font-mono text-[9px] text-[#6D7774]">
-                      {s.slug}.dukanbot.website
+                      {s.slug}.lanesite.pro
                     </p>
                   </a>
                   <a
@@ -184,7 +184,7 @@ export function SitesGrid({ sites }: { sites: SiteRow[] }) {
                   </a>
                   {s.status === "published" && (
                     <a
-                      href={`https://${s.slug}.dukanbot.website`}
+                      href={`https://${s.slug}.lanesite.pro`}
                       target="_blank"
                       rel="noreferrer"
                       title="Open live site"

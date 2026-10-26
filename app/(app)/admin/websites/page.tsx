@@ -37,8 +37,8 @@ export default async function AdminWebsitesPage({
             {r.business_name}
           </Link>
           <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
-            <span className="truncate">{r.slug}.dukanbot.website</span>
-            <CopyButton value={`https://${r.slug}.dukanbot.website`} />
+            <span className="truncate">{r.slug}.lanesite.pro</span>
+            <CopyButton value={`https://${r.slug}.lanesite.pro`} />
           </div>
         </div>
       ),
@@ -143,7 +143,7 @@ export default async function AdminWebsitesPage({
             csv: (r) => ({
               business_name: r.business_name,
               slug: r.slug,
-              url: `https://${r.slug}.dukanbot.website`,
+              url: `https://${r.slug}.lanesite.pro`,
               owner: r.owner_email,
               category: r.category,
               status: r.status,

@@ -51,10 +51,13 @@ function startServer(root) {
         return;
       }
       const rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
-      const file = path.resolve(rootAbs, rel);
+      let file = path.resolve(rootAbs, rel);
       if (file !== rootAbs && !file.startsWith(rootAbs + path.sep)) {
         res.writeHead(403);
         return res.end("forbidden");
+      }
+      if (!fs.existsSync(file) && !path.extname(file) && fs.existsSync(file + ".html")) {
+        file = file + ".html";
       }
       fs.stat(file, (err, st) => {
         if (err || !st.isFile()) {
@@ -520,12 +523,12 @@ async function run({ workspace, outDir, site }) {
     let newsletterEmail = `qa+news-${Date.now()}@example.com`;
 
     try {
-      const { page, bag } = await open(flowCtx, "login.html");
+      const { page, bag } = await open(flowCtx, "login");
       await waitHydrated(page);
       await page.fill("#login-email", "customer@site.local");
       await page.fill("#login-password", "customer123");
       await Promise.all([
-        page.waitForURL("**/dashboard.html", { timeout: 30000 }),
+        page.waitForURL(/\/dashboard(\.html)?$/, { timeout: 30000 }),
         page.click('#login-form button[type="submit"]'),
       ]);
       reportPageErrors(bag, "flow:login-customer");
@@ -549,16 +552,16 @@ async function run({ workspace, outDir, site }) {
       if (!dash.adminHidden) add("error", "flow:dashboard", "owner-only admin link is visible to a customer");
 
       // Customer must not be able to open the owner dashboard.
-      await page.goto(`${base}/admin.html`, { waitUntil: "domcontentloaded" });
-      await page.waitForURL("**/admin-login.html", { timeout: 20000 }).catch(() => {});
-      if (!/admin-login\.html$/.test(new URL(page.url()).pathname)) {
-        add("error", "flow:guard", "visitor without an owner token was not redirected away from admin.html");
+      await page.goto(`${base}/admin`, { waitUntil: "domcontentloaded" });
+      await page.waitForURL(/\/admin-login(\.html)?$/, { timeout: 20000 }).catch(() => {});
+      if (!/admin-login(\.html)?$/.test(new URL(page.url()).pathname)) {
+        add("error", "flow:guard", "visitor without an owner token was not redirected away from admin");
       } else {
         add("info", "flow:guard", "customer redirected from admin to the owner sign-in page");
       }
 
       // Booking submission with dynamic category fields.
-      await page.goto(`${base}/contact.html`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
       await page.waitForFunction(() => document.querySelectorAll("[data-booking-fields] .form-field").length > 0, { timeout: 20000 }).catch(() => {});
       const fieldCount = await page.evaluate((email) => {
@@ -603,14 +606,14 @@ async function run({ workspace, outDir, site }) {
       // Newsletter subscription from the footer. These flows call /_api while
       // the build host is still settling, so a slow response gets one retry
       // with a fresh address before it counts as a failure.
-      await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
       let subscribed = false;
       let newsletterStatus = "";
       for (let attempt = 0; attempt < 2 && !subscribed; attempt++) {
         if (attempt > 0) {
           newsletterEmail = `qa+news-${Date.now()}-retry@example.com`;
-          await page.goto(`${base}/index.html`, { waitUntil: "domcontentloaded" });
+          await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
           await waitHydrated(page);
         }
         await page.fill('#newsletter-form input[name="email"]', newsletterEmail);
@@ -629,7 +632,7 @@ async function run({ workspace, outDir, site }) {
       }
 
       // Customer dashboard sees both new requests and can cancel a sample booking.
-      await page.goto(`${base}/dashboard.html`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/dashboard`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
       await page.waitForTimeout(400);
       const dashCards = await page.evaluate(() => Array.from(document.querySelectorAll("#my-requests .request-card")).map((c) => c.innerText));
@@ -654,7 +657,7 @@ async function run({ workspace, outDir, site }) {
       else if (cancelled) add("info", "flow:cancel", "customer cancelled a booking");
 
       // A second booking stays active for the owner workflow below.
-      await page.goto(`${base}/contact.html`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
       await page.waitForFunction(() => document.querySelectorAll("[data-booking-fields] .form-field").length > 0, { timeout: 20000 }).catch(() => {});
       await page.evaluate((email) => {
@@ -679,7 +682,7 @@ async function run({ workspace, outDir, site }) {
       const bookingRef2 = ((await page.textContent("#booking-success [data-success-ref]").catch(() => "")) || "").trim();
       if (!/^BK-/.test(bookingRef2)) add("error", "flow:booking2", "second booking did not get a reference");
 
-      await page.goto(`${base}/dashboard.html`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/dashboard`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
       await page.fill("#profile-name", "QA Customer");
       await page.fill("#profile-phone", "03007654321");
@@ -696,10 +699,10 @@ async function run({ workspace, outDir, site }) {
 
       // Log out and sign in as the owner on the dedicated owner sign-in page.
       await page.click(".js-logout");
-      await page.waitForURL("**/index.html", { timeout: 10000 }).catch(() => {});
+      await page.waitForURL(/\/(index\.html)?$/, { timeout: 10000 }).catch(() => {});
       const creds = await getOwnerCreds(site && site.slug ? site.slug : "");
       if (!creds) throw new Error("owner credentials were not available for QA");
-      await page.goto(`${base}/admin-login.html`, { waitUntil: "domcontentloaded" });
+      await page.goto(`${base}/admin-login`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
 
       // A wrong password must be rejected without a token. One retry: the
@@ -708,7 +711,7 @@ async function run({ workspace, outDir, site }) {
       let rejected = false;
       for (let attempt = 0; attempt < 2 && !rejected; attempt++) {
         if (attempt > 0) {
-          await page.goto(`${base}/admin-login.html`, { waitUntil: "domcontentloaded" });
+          await page.goto(`${base}/admin-login`, { waitUntil: "domcontentloaded" });
           await waitHydrated(page);
         }
         await page.fill("#admin-username", creds.username);
@@ -725,25 +728,25 @@ async function run({ workspace, outDir, site }) {
       if (!rejected) add("error", "flow:admin-login", "wrong owner password was accepted");
       else add("info", "flow:admin-login", "wrong password rejected on the owner sign-in page");
 
-      let ownerSignedIn = /\/admin\.html$/.test(new URL(page.url()).pathname);
+      let ownerSignedIn = /\/admin(\.html)?$/.test(new URL(page.url()).pathname);
       let ownerStatus = "";
       for (let attempt = 0; attempt < 2 && !ownerSignedIn; attempt++) {
         if (attempt > 0) {
           // A still-pending sign-in leaves the submit button disabled, so a
           // retry has to start from a fresh page.
-          await page.goto(`${base}/admin-login.html`, { waitUntil: "domcontentloaded" });
+          await page.goto(`${base}/admin-login`, { waitUntil: "domcontentloaded" });
           await waitHydrated(page);
         }
         await page.fill("#admin-username", creds.username);
         await page.fill("#admin-password", creds.password);
-        const nav = page.waitForURL("**/admin.html", { timeout: 60000 }).then(() => true).catch(() => false);
+        const nav = page.waitForURL(/\/admin(\.html)?$/, { timeout: 60000 }).then(() => true).catch(() => false);
         await page.click('#admin-login-form button[type="submit"]');
-        ownerSignedIn = (await nav) || /\/admin\.html$/.test(new URL(page.url()).pathname);
+        ownerSignedIn = (await nav) || /\/admin(\.html)?$/.test(new URL(page.url()).pathname);
         ownerStatus = await page.evaluate(() => (document.getElementById("admin-login-status") || {}).textContent || "").catch(() => "");
         if (!ownerSignedIn) await page.waitForTimeout(1500);
       }
       if (!ownerSignedIn) {
-        throw new Error(`owner sign-in did not reach admin.html after 2 attempts (status: "${ownerStatus.slice(0, 120)}")`);
+        throw new Error(`owner sign-in did not reach admin after 2 attempts (status: "${ownerStatus.slice(0, 120)}")`);
       }
       await waitHydrated(page);
       // Admin data loads async; poll for it instead of a fixed sleep.
@@ -839,7 +842,7 @@ async function run({ workspace, outDir, site }) {
       }
 
       await page.click(".js-logout");
-      await page.waitForURL("**/admin-login.html", { timeout: 10000 }).catch(() => {});
+      await page.waitForURL(/\/admin-login(\.html)?$/, { timeout: 10000 }).catch(() => {});
     } catch (e) {
       add("error", "flow:customer-owner", e.message);
     } finally {
@@ -852,7 +855,7 @@ async function run({ workspace, outDir, site }) {
     // Registration + dashboard.
     try {
       const regCtx = await browser.newContext({ viewport: desktop });
-      const { page, bag } = await open(regCtx, "login.html");
+      const { page, bag } = await open(regCtx, "login");
       await waitHydrated(page);
       await page.click('.auth-tab[data-mode="register"]');
       const unique = `qa+new-${Date.now()}@example.com`;
@@ -862,7 +865,7 @@ async function run({ workspace, outDir, site }) {
       await page.fill("#reg-password", "qa-pass-123");
       await page.fill("#reg-confirm", "qa-pass-123");
       await Promise.all([
-        page.waitForURL("**/dashboard.html", { timeout: 30000 }),
+        page.waitForURL(/\/dashboard(\.html)?$/, { timeout: 30000 }),
         page.click('#register-form button[type="submit"]'),
       ]);
       await waitHydrated(page);
@@ -880,9 +883,9 @@ async function run({ workspace, outDir, site }) {
     try {
       const guardCtx = await browser.newContext({ viewport: desktop });
       const page = await guardCtx.newPage();
-      await page.goto(`${base}/dashboard.html`, { waitUntil: "domcontentloaded" });
-      await page.waitForURL("**/login.html?next=dashboard.html", { timeout: 20000 }).catch(() => {});
-      if (!/login\.html/.test(new URL(page.url()).pathname)) {
+      await page.goto(`${base}/dashboard`, { waitUntil: "domcontentloaded" });
+      await page.waitForURL(/\/login(\.html)?\?next=dashboard/, { timeout: 20000 }).catch(() => {});
+      if (!/\/login(\.html)?$/.test(new URL(page.url()).pathname)) {
         add("error", "flow:guard-signed-out", "signed-out visitor was not redirected to login");
       } else {
         add("info", "flow:guard-signed-out", "signed-out dashboard redirect works");
@@ -890,6 +893,57 @@ async function run({ workspace, outDir, site }) {
       await guardCtx.close();
     } catch (e) {
       add("error", "flow:guard-signed-out", e.message);
+    }
+
+    // Guest tracking flow: book without an account, click [data-account-link], reach dashboard?track without redirect.
+    try {
+      const guestCtx = await browser.newContext({ viewport: desktop });
+      const page = await guestCtx.newPage();
+      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
+      await waitHydrated(page);
+      await page.waitForFunction(() => document.querySelectorAll("[data-booking-fields] .form-field").length > 0, { timeout: 20000 }).catch(() => {});
+      const guestEmail = `qa+guest-${Date.now()}@example.com`;
+      await page.evaluate((email) => {
+        const form = document.getElementById("booking-form");
+        if (!form) return;
+        const fields = form.querySelectorAll("[data-booking-fields] input, [data-booking-fields] select, [data-booking-fields] textarea");
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        fields.forEach((el) => {
+          if (el.tagName === "SELECT") {
+            if (el.options.length > 1) el.value = el.options[1].value;
+          } else if (el.type === "date") el.value = tomorrow;
+          else if (el.type === "time") el.value = "19:00";
+          else if (el.type === "number") el.value = "2";
+          else el.value = "QA test";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        form.elements.name.value = "Guest Visitor";
+        form.elements.phone.value = "03001234567";
+        form.elements.email.value = email;
+      }, guestEmail);
+      await page.click('#booking-form button[type="submit"]');
+      await page.waitForSelector("#booking-success:not([hidden])", { timeout: 10000 }).catch(() => {});
+      const bookingRef = ((await page.textContent("#booking-success [data-success-ref]").catch(() => "")) || "").trim();
+      if (!/^BK-/.test(bookingRef)) {
+        add("error", "flow:guest-booking", "booking success panel did not show a BK reference");
+      } else {
+        await Promise.all([
+          page.waitForURL(/\/dashboard(\.html)?\?track/, { timeout: 20000 }),
+          page.click("#booking-success [data-account-link]"),
+        ]);
+        await waitHydrated(page);
+        await page.waitForTimeout(500);
+        const cardRef = ((await page.textContent("#my-requests .ref-tag").catch(() => "")) || "").trim();
+        if (cardRef !== bookingRef) {
+          add("error", "flow:guest-tracking", `tracked card did not match reference ${bookingRef} (got: ${cardRef})`);
+        } else {
+          add("info", "flow:guest-tracking", `guest booking tracked successfully on dashboard (${cardRef})`);
+        }
+      }
+      await guestCtx.close();
+    } catch (e) {
+      add("error", "flow:guest-tracking", e.message);
     }
   } finally {
     await browser.close().catch(() => {});
