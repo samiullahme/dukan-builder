@@ -15,7 +15,7 @@
 
   function makeField(field, services) {
     var wrap = document.createElement("div");
-    wrap.className = "form-field";
+    wrap.className = "form-field field";
     var id = "f-" + field.name;
     var label = document.createElement("label");
     label.setAttribute("for", id);

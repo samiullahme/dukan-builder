@@ -7,7 +7,21 @@
   <meta name="dukan-site" content="__SITE_SLUG__" />
   <title data-title-template="My account — {name}">My account — Your Business Name</title>
   <meta name="robots" content="noindex" />
-  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="dashboard.css?v=2" />
+  <script>
+    (function () {
+      try {
+        var m = document.querySelector('meta[name="dukan-site"]');
+        var slug = (m && m.getAttribute("content")) || "default";
+        var raw = localStorage.getItem("dukan_session_v1:" + slug);
+        var s = raw ? JSON.parse(raw) : null;
+        if (!s || !s.userId) {
+          document.documentElement.style.display = "none";
+          location.replace("login?next=dashboard");
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <header class="app-bar">
@@ -52,19 +66,19 @@
             <p data-booking-blurb>Tell us what you need and when. We will confirm the details.</p>
             <div class="form-grid" data-booking-fields></div>
             <div class="form-grid">
-              <div class="form-field">
+              <div class="form-field field">
                 <label for="bk-name">Your name *</label>
                 <input id="bk-name" name="name" type="text" autocomplete="name" required />
               </div>
-              <div class="form-field">
+              <div class="form-field field">
                 <label for="bk-phone">Phone *</label>
                 <input id="bk-phone" name="phone" type="tel" autocomplete="tel" required />
               </div>
-              <div class="form-field full">
+              <div class="form-field field full">
                 <label for="bk-email">Email *</label>
                 <input id="bk-email" name="email" type="email" autocomplete="email" required />
               </div>
-              <div class="form-field full">
+              <div class="form-field field full">
                 <label for="bk-message">Anything else we should know?</label>
                 <textarea id="bk-message" name="message" rows="3"></textarea>
               </div>
@@ -121,10 +135,10 @@
     </div>
   </main>
 
-  <script src="theme.js"></script>
-  <script src="categories.js"></script>
-  <script src="store.js"></script>
-  <script src="forms.js"></script>
-  <script src="dashboard.js"></script>
+  <script src="theme.js?v=2"></script>
+  <script src="categories.js?v=2"></script>
+  <script src="store.js?v=2"></script>
+  <script src="forms.js?v=2"></script>
+  <script src="dashboard.js?v=2"></script>
 </body>
 </html>

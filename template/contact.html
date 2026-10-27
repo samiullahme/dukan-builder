@@ -9,6 +9,20 @@
   <meta name="description" data-slot-attr="content:tagline" content="A short line about what makes your shop special." />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="pages.css" />
+  <script>
+    (function () {
+      if (location.hash === "#book") {
+        try {
+          var m = document.querySelector('meta[name="dukan-site"]');
+          var slug = (m && m.getAttribute("content")) || "default";
+          var raw = localStorage.getItem("dukan_session_v1:" + slug);
+          var s = raw ? JSON.parse(raw) : null;
+          document.documentElement.style.display = "none";
+          location.replace(s && s.userId ? "dashboard" : "login?next=dashboard");
+        } catch (e) {}
+      }
+    })();
+  </script>
 </head>
 <body>
   <!-- chrome:header:start -->
@@ -25,7 +39,7 @@
       </nav>
       <div class="nav-actions">
         <a class="nav-auth js-auth-link" href="login">Sign in</a>
-        <a class="btn btn-small" href="dashboard" data-book-label>Book now</a>
+        <a class="btn btn-small" href="login?next=dashboard" data-book-label>Book now</a>
       </div>
     </div>
   </header>
@@ -46,7 +60,7 @@
           <h2 data-booking-title>Request a booking</h2>
           <p>Sign in to your account to book an appointment or reservation and track your requests in one place.</p>
           <div class="form-actions">
-            <a class="btn" href="dashboard" data-book-label>Book now</a>
+            <a class="btn" href="login?next=dashboard" data-book-label>Book now</a>
             <span class="muted">Fast online booking via your customer dashboard.</span>
           </div>
         </div>
@@ -164,10 +178,10 @@
   </footer>
   <!-- chrome:footer:end -->
 
-  <script src="theme.js"></script>
-  <script src="categories.js"></script>
-  <script src="store.js"></script>
-  <script src="site.js"></script>
-  <script src="forms.js"></script>
+  <script src="theme.js?v=2"></script>
+  <script src="categories.js?v=2"></script>
+  <script src="store.js?v=2"></script>
+  <script src="site.js?v=2"></script>
+  <script src="forms.js?v=2"></script>
 </body>
 </html>

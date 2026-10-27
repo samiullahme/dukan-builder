@@ -7,7 +7,21 @@
   <meta name="dukan-site" content="__SITE_SLUG__" />
   <title data-title-template="Sign in — {name}">Sign in — Your Business Name</title>
   <meta name="robots" content="noindex" />
-  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="dashboard.css?v=2" />
+  <script>
+    (function () {
+      try {
+        var m = document.querySelector('meta[name="dukan-site"]');
+        var slug = (m && m.getAttribute("content")) || "default";
+        var raw = localStorage.getItem("dukan_session_v1:" + slug);
+        var s = raw ? JSON.parse(raw) : null;
+        if (s && s.userId) {
+          document.documentElement.style.display = "none";
+          location.replace("dashboard");
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body class="auth-page">
   <div class="auth-shell">
@@ -69,8 +83,8 @@
     </div>
   </div>
 
-  <script src="theme.js"></script>
-  <script src="store.js"></script>
-  <script src="auth.js"></script>
+  <script src="theme.js?v=2"></script>
+  <script src="store.js?v=2"></script>
+  <script src="auth.js?v=2"></script>
 </body>
 </html>

@@ -2,6 +2,17 @@
    Loads site.json once, applies the palette and contact links, and exposes
    window.DukanSite.ready so the other scripts can wait for the data. */
 (function () {
+  if (location.hash === "#book" && !/\/dashboard(\.html)?$/i.test(location.pathname)) {
+    try {
+      var meta = document.querySelector('meta[name="dukan-site"]');
+      var siteSlug = (meta && meta.getAttribute("content")) || "default";
+      var rawSession = localStorage.getItem("dukan_session_v1:" + siteSlug);
+      var parsedSession = rawSession ? JSON.parse(rawSession) : null;
+      document.documentElement.style.display = "none";
+      location.replace(parsedSession && parsedSession.userId ? "dashboard" : "login?next=dashboard");
+      return;
+    } catch (e) {}
+  }
   var listeners = [];
   var readyResolve;
   var ready = new Promise(function (resolve) { readyResolve = resolve; });
