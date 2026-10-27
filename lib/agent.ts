@@ -135,7 +135,9 @@ export async function lastAssistantText(h: ServeHandle, sessionId: string): Prom
 
 export type IdleResult = "idle" | "error" | "timeout";
 
-const OPENCODE_DB = "/home/builder/.local/share/opencode/opencode.db";
+const OPENCODE_DB =
+  process.env.OPENCODE_DB ||
+  (process.env.HOME ? `${process.env.HOME}/.local/share/opencode/opencode.db` : "/home/builder/.local/share/opencode/opencode.db");
 
 /**
  * Last "turn finished" marker for a session, read before prompting. Without a
