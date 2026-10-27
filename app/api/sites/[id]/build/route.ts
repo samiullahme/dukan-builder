@@ -24,7 +24,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   const active = await db
-    .prepare("SELECT 1 FROM builds WHERE site_id = ? AND status IN ('queued','building')")
+    .prepare("SELECT 1 FROM builds WHERE site_id = ? AND status IN ('pending','queued','building')")
     .get(site.id);
   if (active) return NextResponse.json({ error: "A build is already queued or running for this site." }, { status: 409 });
 
@@ -34,7 +34,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   const buildId = crypto.randomUUID();
-  await db.prepare("INSERT INTO builds (id, site_id, status) VALUES (?,?,?)").run(buildId, site.id, "queued");
+  await db.prepare("INSERT INTO builds (id, site_id, status) VALUES (?,?,?)").run(buildId, site.id, "pending");
   await db.prepare("UPDATE sites SET status = 'building' WHERE id = ?").run(site.id);
 
   return NextResponse.json({ ok: true, buildId }, { status: 201 });

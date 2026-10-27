@@ -96,6 +96,7 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-slate-100 text-slate-600",
+  pending: "bg-amber-50 text-amber-700",
   queued: "bg-amber-50 text-amber-700",
   building: "bg-amber-50 text-amber-700",
   ready: "bg-emerald-50 text-emerald-700",
@@ -104,7 +105,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const pulse = status === "building" || status === "queued";
+  const pulse = status === "building" || status === "queued" || status === "pending";
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[status] ?? STATUS_STYLES.draft}`}

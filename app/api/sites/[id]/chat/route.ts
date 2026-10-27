@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const busy = await db
-    .prepare(`SELECT 1 FROM builds WHERE site_id = ? AND status IN ('queued','building')`)
+    .prepare(`SELECT 1 FROM builds WHERE site_id = ? AND status IN ('pending','queued','building')`)
     .get(site.id);
   if (busy) return NextResponse.json({ error: "The AI is still working — wait for it to finish." }, { status: 409 });
 
@@ -50,7 +50,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       crypto.randomUUID(), site.id, "user", text
     );
     await t.prepare(`INSERT INTO builds (id, site_id, kind, input, status) VALUES (?,?,?,?,?)`).run(
-      buildId, site.id, "refine", text, "queued"
+      buildId, site.id, "refine", text, "pending"
     );
   });
 

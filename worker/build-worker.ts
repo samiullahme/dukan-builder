@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { spawn } from "child_process";
+import { spawn, execFileSync } from "child_process";
 import db, { tx } from "../lib/db";
 import {
   startServe,
@@ -663,7 +663,7 @@ export async function runSiteQaExclusive(workspace: string, buildId: string): Pr
 async function tick(): Promise<void> {
   if (activeBuildsCount >= MAX_CONCURRENT_BUILDS) return;
   const row = await db
-    .prepare(`SELECT id FROM builds WHERE status = 'queued' ORDER BY created_at LIMIT 1`)
+    .prepare(`SELECT id FROM builds WHERE status IN ('pending', 'queued') ORDER BY created_at LIMIT 1`)
     .get<{ id: string }>();
   if (!row) return;
   activeBuildsCount++;
@@ -720,7 +720,7 @@ async function processRevert(buildId: string, site: any, build: any, workspace: 
 export async function processBuild(buildId: string): Promise<void> {
   // Atomic claim: only one worker can take a queued build.
   const claimed = await db
-    .prepare(`UPDATE builds SET status = 'building', started_at = now() WHERE id = ? AND status = 'queued'`)
+    .prepare(`UPDATE builds SET status = 'building', started_at = now() WHERE id = ? AND status IN ('pending', 'queued')`)
     .run(buildId);
   if (claimed.changes === 0) return;
 
@@ -748,12 +748,28 @@ export async function processBuild(buildId: string): Promise<void> {
 
     const workspace = path.join(process.env.TENANTS_ROOT || TENANTS_ROOT, site.user_id, site.slug);
     if (!fs.existsSync(path.join(workspace, "index.html"))) {
-      await failBuild(buildId, site.id, "workspace missing: " + workspace, {
-        userId,
-        buildKind,
-        quotaConsumed: false,
-      });
-      return;
+      if (brief) {
+        try {
+          await appendLog(buildId, "workspace missing on disk; re-seeding from template...");
+          fs.mkdirSync(workspace, { recursive: true });
+          const templateDir = process.env.TEMPLATE_DIR || "/home/ubuntu/lanesite.pro/dukan-builder/template";
+          execFileSync("cp", ["-r", templateDir + "/.", workspace]);
+        } catch (e: any) {
+          await failBuild(buildId, site.id, "workspace missing and could not re-seed: " + e.message, {
+            userId,
+            buildKind,
+            quotaConsumed: false,
+          });
+          return;
+        }
+      } else {
+        await failBuild(buildId, site.id, "workspace missing: " + workspace, {
+          userId,
+          buildKind,
+          quotaConsumed: false,
+        });
+        return;
+      }
     }
 
     // Reverts are deterministic file restores — no agent, no quota, no QA.

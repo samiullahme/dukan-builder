@@ -68,7 +68,7 @@ export function BuildPanel({
     if (!res.ok) return;
     const next: Build[] = await res.json();
     setBuilds(next);
-    const nowActive = next.some((b) => b.status === "queued" || b.status === "building");
+    const nowActive = next.some((b) => b.status === "pending" || b.status === "queued" || b.status === "building");
     // The site header, chat and publish panels are server-rendered; refresh
     // them once the build leaves the active state so they don't stay stale.
     if (wasActive.current && !nowActive) router.refresh();
@@ -80,7 +80,7 @@ export function BuildPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    const active = builds.some((b) => b.status === "queued" || b.status === "building");
+    const active = builds.some((b) => b.status === "pending" || b.status === "queued" || b.status === "building");
     if (!active) return;
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -125,8 +125,8 @@ export function BuildPanel({
     }
   };
 
-  const active = builds.some((b) => b.status === "queued" || b.status === "building");
-  const activeBuild = builds.find((b) => b.status === "queued" || b.status === "building");
+  const active = builds.some((b) => b.status === "pending" || b.status === "queued" || b.status === "building");
+  const activeBuild = builds.find((b) => b.status === "pending" || b.status === "queued" || b.status === "building");
   const latest = builds[0];
   const displayBuild = activeBuild || latest;
 

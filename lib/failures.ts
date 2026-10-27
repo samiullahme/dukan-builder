@@ -171,7 +171,7 @@ export function deriveBuildProgress(
     activeIndex = 4;
   }
 
-  const isActive = status === "queued" || status === "building";
+  const isActive = status === "pending" || status === "queued" || status === "building";
   const stages: CustomerStage[] = CUSTOMER_STAGE_LABELS.map((label, idx) => {
     if (idx < activeIndex) return { number: idx + 1, label, state: "done" };
     if (idx === activeIndex && isActive) return { number: idx + 1, label, state: "doing" };
@@ -183,7 +183,7 @@ export function deriveBuildProgress(
   const remainingCount = stages.filter((s) => s.state === "remaining").length;
 
   let currentSentence = "Working...";
-  if (status === "queued") {
+  if (status === "pending" || status === "queued") {
     currentSentence = "Queued — your build will start in a moment.";
   } else if (status === "failed") {
     currentSentence = "This build stopped before finishing. You can start a new build to try again.";

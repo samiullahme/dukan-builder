@@ -28,7 +28,7 @@ export async function POST(
     return NextResponse.json({ error: "That build never finished successfully." }, { status: 409 });
   }
   const active = await db
-    .prepare("SELECT 1 FROM builds WHERE site_id = ? AND status IN ('queued','building')")
+    .prepare("SELECT 1 FROM builds WHERE site_id = ? AND status IN ('pending','queued','building')")
     .get(site.id);
   if (active) {
     return NextResponse.json({ error: "Another build is running — wait for it to finish." }, { status: 409 });
@@ -44,7 +44,7 @@ export async function POST(
 
   const revertId = crypto.randomUUID();
   await db
-    .prepare("INSERT INTO builds (id, site_id, status, kind, input) VALUES (?, ?, 'queued', 'revert', ?)")
+    .prepare("INSERT INTO builds (id, site_id, status, kind, input) VALUES (?, ?, 'pending', 'revert', ?)")
     .run(revertId, site.id, buildId);
   return NextResponse.json({ ok: true, buildId: revertId });
 }

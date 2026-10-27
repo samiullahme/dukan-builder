@@ -229,14 +229,14 @@ export async function retryBuild(actor: User, buildId: string, reason: string | 
       throw new AdminActionError("Only failed builds can be retried.");
     }
     const busy = await get<{ one: number }>(
-      `SELECT 1 AS one FROM builds WHERE site_id = ? AND status IN ('queued','building') LIMIT 1`,
+      `SELECT 1 AS one FROM builds WHERE site_id = ? AND status IN ('pending','queued','building') LIMIT 1`,
       build.site_id
     );
     if (busy) throw new AdminActionError("This website already has a build queued or running.");
     const newId = crypto.randomUUID();
     await run(
       `INSERT INTO builds (id, site_id, kind, input, status) VALUES (?,?,?,?,?)`,
-      newId, build.site_id, build.kind, build.input ?? "", "queued"
+      newId, build.site_id, build.kind, build.input ?? "", "pending"
     );
     await run(`UPDATE sites SET status = 'building' WHERE id = ?`, build.site_id);
     await writeAudit(actor, "build.retry", "build", buildId, reason || `new=${newId}`, null);

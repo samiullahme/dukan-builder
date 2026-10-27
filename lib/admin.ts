@@ -56,7 +56,7 @@ export async function getAdminStats(range: Range): Promise<AdminStats> {
       one(`SELECT COUNT(*) AS n FROM builds WHERE status IN ('ready','failed') AND ${inRange}`),
       one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'ready' AND ${inRange}`),
       one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'building'`),
-      one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'queued'`),
+      one(`SELECT COUNT(*) AS n FROM builds WHERE status IN ('pending','queued')`),
     ]);
 
   const avg = await get<{ avg: string | null }>(
@@ -386,7 +386,7 @@ export async function getSystemHealth(): Promise<{
     return Number(row?.n ?? 0);
   };
   const [queued, building, ready7d, failed7d] = await Promise.all([
-    one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'queued'`),
+    one(`SELECT COUNT(*) AS n FROM builds WHERE status IN ('pending','queued')`),
     one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'building'`),
     one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'ready' AND created_at >= now() - interval '7 days'`),
     one(`SELECT COUNT(*) AS n FROM builds WHERE status = 'failed' AND created_at >= now() - interval '7 days'`),
