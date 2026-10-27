@@ -648,6 +648,7 @@ async function run({ workspace, outDir, site }) {
         if (!button) return { found: false };
         const id = button.getAttribute("data-cancel");
         const res = window.DukanStore ? window.DukanStore.cancelRequest(id) : { ok: false, error: "no store" };
+        window.dispatchEvent(new CustomEvent("dukan:store"));
         return { found: true, id, res };
       }, cancelRef);
 

@@ -333,6 +333,9 @@
             if (sr.sample || sr.type === "newsletter") return;
             var existing = data.requests.find(function (r) { return r.ref === sr.ref; });
             if (existing) {
+              if (existing.status === "cancelled" && sr.status !== "cancelled") {
+                return;
+              }
               if (existing.status !== sr.status) {
                 existing.status = sr.status;
                 updated = true;
