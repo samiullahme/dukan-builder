@@ -54,17 +54,22 @@ describe("build speed and token reduction optimizations", () => {
 
   it("runSiteQaExclusive executes QA runs sequentially using the mutex", async () => {
     const order: string[] = [];
+    const oldQa = process.env.QA_SCRIPT;
+    process.env.QA_SCRIPT = "/bin/true";
 
-    // Mock QA calls by triggering concurrent runs
-    // runSiteQaExclusive internally wraps the execution in a promise chain
-    const p1 = runSiteQaExclusive("/tmp/nonexistent-1", "b1").then(() => {
-      order.push("b1-done");
-    });
-    const p2 = runSiteQaExclusive("/tmp/nonexistent-2", "b2").then(() => {
-      order.push("b2-done");
-    });
+    try {
+      const p1 = runSiteQaExclusive("/tmp/nonexistent-1", "b1").then(() => {
+        order.push("b1-done");
+      });
+      const p2 = runSiteQaExclusive("/tmp/nonexistent-2", "b2").then(() => {
+        order.push("b2-done");
+      });
 
-    await Promise.all([p1, p2]);
-    expect(order).toEqual(["b1-done", "b2-done"]);
+      await Promise.all([p1, p2]);
+      expect(order).toEqual(["b1-done", "b2-done"]);
+    } finally {
+      if (oldQa !== undefined) process.env.QA_SCRIPT = oldQa;
+      else delete process.env.QA_SCRIPT;
+    }
   });
 });

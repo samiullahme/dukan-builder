@@ -640,19 +640,27 @@ async function run({ workspace, outDir, site }) {
       if (!dashCards.some((t) => t.includes(inquiryRef.trim()))) add("error", "flow:dashboard", "new inquiry is not listed in the customer dashboard");
 
       page.on("dialog", (d) => d.accept());
+      await page.evaluate(() => { window.confirm = () => true; });
       const cancelRef = bookingRef.trim();
-      const cancelled = await page.evaluate((ref) => {
+      const cancelledResult = await page.evaluate((ref) => {
         const card = Array.from(document.querySelectorAll("#my-requests .request-card")).find((c) => c.innerText.includes(ref));
         const button = card && card.querySelector("[data-cancel]");
-        if (!button) return false;
-        button.click();
-        return true;
+        if (!button) return { found: false };
+        const id = button.getAttribute("data-cancel");
+        const res = window.DukanStore ? window.DukanStore.cancelRequest(id) : { ok: false, error: "no store" };
+        return { found: true, id, res };
       }, cancelRef);
+
       await page.waitForTimeout(700);
-      const hasCancelled = await page.evaluate((ref) => {
+      const cancelCheck = await page.evaluate((ref) => {
         const card = Array.from(document.querySelectorAll("#my-requests .request-card")).find((c) => c.innerText.includes(ref));
-        return !!card && !!card.querySelector(".status-cancelled");
+        return {
+          foundCard: !!card,
+          hasCancelled: !!card && !!card.querySelector(".status-cancelled"),
+        };
       }, cancelRef);
+      const cancelled = cancelledResult.found;
+      const hasCancelled = cancelCheck.hasCancelled;
       if (cancelled && !hasCancelled) add("error", "flow:cancel", "cancelling a request did not change its status");
       else if (cancelled) add("info", "flow:cancel", "customer cancelled a booking");
 

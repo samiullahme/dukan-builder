@@ -63,7 +63,7 @@
   padding: 72px 0 64px;
 }
 .page-hero .eyebrow { color: #fff; background: rgba(255, 255, 255, 0.16); }
-.page-hero h1 { font-size: clamp(2.1rem, 4.6vw, 3.3rem); font-weight: 700; max-width: 22ch; }
+.page-hero h1 { color: #fff; font-size: clamp(2.1rem, 4.6vw, 3.3rem); font-weight: 700; max-width: 22ch; }
 .page-hero p { color: rgba(255, 255, 255, 0.82); max-width: 62ch; margin-top: 14px; font-size: 1.03rem; }
 
 .page-section { padding: 72px 0; }
