@@ -40,12 +40,12 @@ change, but the attributes/IDs must stay):
 - `id="services-grid"` and `id="gallery"` containing `id="gallery-grid"`.
 - Navigation links to `/`, `services`, `gallery`,
   `about`, `contact`, `login`.
-- At least one link to `contact#book` (the booking form).
+- At least one booking CTA link (`data-book-label` linking to `dashboard` or `contact#book`).
 - The footer newsletter form: `id="newsletter-form"` with a `name="email"`
   input and a submit button.
 - `.js-auth-link` on the sign-in/dashboard link.
 
-The booking form itself lives on `contact.html` (served at `/contact`) and is generated from the
+The booking form itself lives on `dashboard.html` (served at `/dashboard`, gated behind customer sign-in) and is generated from the
 business category; do not duplicate it.
 
 ## Header and footer are shared by every page

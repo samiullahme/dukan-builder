@@ -252,6 +252,9 @@
       return { ok: false, error: "That email is already subscribed." };
     }
     var user = currentUser();
+    if (type === "booking" && !user) {
+      return { ok: false, error: "Please sign in to make a booking." };
+    }
     var fields = {};
     var rawFields = input.fields || {};
     Object.keys(rawFields).forEach(function (key) {

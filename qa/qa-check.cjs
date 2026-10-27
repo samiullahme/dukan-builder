@@ -382,7 +382,7 @@ if (html) {
     const re = new RegExp(`href="(?:\\/)?${page}(?:\\.html)?"`, "i");
     if (!re.test(html)) add("error", "nav:" + page, "homepage does not link to " + page);
   }
-  if (!/href="(?:\/)?contact(?:\.html)?#book"/i.test(html)) add("error", "nav:book", "no link to contact#book");
+  if (!/href="(?:\/)?(?:contact(?:\.html)?#book|dashboard(?:\.html)?(?:#book)?|login(?:\.html)?\?next=dashboard)"|data-book-label/i.test(html)) add("error", "nav:book", "no booking CTA link");
   for (const script of ["theme.js", "site.js", "categories.js", "store.js", "forms.js"]) {
     if (!html.includes(script)) add("error", "script:" + script, "homepage does not load " + script);
   }
@@ -448,11 +448,11 @@ if (html) {
   if (refHeader && refFooter && !chromeDrift) ok("chrome", "header and footer match on all public pages");
 }
 
-const contact = exists("contact.html") ? read("contact.html") : "";if (contact) {
-  for (const id of ["booking-form", "booking-success", "inquiry-form", "inquiry-success"]) {
+const contact = exists("contact.html") ? read("contact.html") : "";
+if (contact) {
+  for (const id of ["inquiry-form", "inquiry-success"]) {
     if (!contact.includes(`id="${id}"`)) add("error", "form:" + id, "missing #" + id);
   }
-  if (!/data-booking-fields/.test(contact)) add("error", "form:fields", "missing [data-booking-fields]");
   for (const script of ["theme.js", "site.js", "categories.js", "store.js", "forms.js"]) {
     if (!contact.includes(script)) add("error", "contact-script:" + script, "contact page does not load " + script);
   }
@@ -461,10 +461,11 @@ const contact = exists("contact.html") ? read("contact.html") : "";if (contact) 
 const dashboard = exists("dashboard.html") ? read("dashboard.html") : "";
 const admin = exists("admin.html") ? read("admin.html") : "";
 if (dashboard) {
-  for (const id of ["my-requests", "requests-empty", "profile-form"]) {
+  for (const id of ["booking-form", "booking-success", "my-requests", "requests-empty", "profile-form"]) {
     if (!dashboard.includes(`id="${id}"`)) add("error", "dashboard:" + id, "missing #" + id);
   }
-  for (const script of ["store.js", "categories.js", "dashboard.js"]) {
+  if (!/data-booking-fields/.test(dashboard)) add("error", "dashboard:fields", "missing [data-booking-fields]");
+  for (const script of ["store.js", "categories.js", "forms.js", "dashboard.js"]) {
     if (!dashboard.includes(script)) add("error", "dashboard-script:" + script, "dashboard does not load " + script);
   }
   if (!/dashboard\.css/.test(dashboard)) add("error", "dashboard:css", "dashboard does not load dashboard.css");

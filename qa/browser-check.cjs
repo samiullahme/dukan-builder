@@ -487,8 +487,7 @@ async function run({ workspace, outDir, site }) {
         }
 
         if (file === "contact.html") {
-          if (!data.bookingForm || !data.inquiryForm) add("error", tag + ":forms", "booking or inquiry form missing");
-          if (data.bookingFields === 0) add("error", tag + ":booking-fields", "booking fields were not generated from the category");
+          if (!data.inquiryForm) add("error", tag + ":forms", "inquiry form missing");
           if (vp.name === "mobile" && data.tapTargets.length) {
             add("warn", tag + ":tap-targets", `${data.tapTargets.length} small tap target(s)`, data.tapTargets);
           }
@@ -560,8 +559,13 @@ async function run({ workspace, outDir, site }) {
         add("info", "flow:guard", "customer redirected from admin to the owner sign-in page");
       }
 
-      // Booking submission with dynamic category fields.
-      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
+      // Logged-in booking CTA click redirects to /dashboard where the booking form lives.
+      await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
+      await waitHydrated(page);
+      await Promise.all([
+        page.waitForURL(/\/dashboard(\.html)?(#book)?$/, { timeout: 20000 }),
+        page.click('[data-book-label], [data-booking-cta], a[href*="#book"]'),
+      ]);
       await waitHydrated(page);
       await page.waitForFunction(() => document.querySelectorAll("[data-booking-fields] .form-field").length > 0, { timeout: 20000 }).catch(() => {});
       const fieldCount = await page.evaluate((email) => {
@@ -592,7 +596,9 @@ async function run({ workspace, outDir, site }) {
       if (!/^BK-/.test(bookingRef.trim())) add("error", "flow:booking", "booking success panel did not show a BK reference");
       else add("info", "flow:booking", `booking submitted ${bookingRef.trim()}`);
 
-      // Inquiry submission.
+      // Inquiry submission on /contact.
+      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
+      await waitHydrated(page);
       await page.fill("#inq-name", "QA Guest");
       await page.fill("#inq-phone", "03001234567");
       await page.fill("#inq-email", testEmail);
@@ -666,8 +672,6 @@ async function run({ workspace, outDir, site }) {
       else if (cancelled) add("info", "flow:cancel", "customer cancelled a booking");
 
       // A second booking stays active for the owner workflow below.
-      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
-      await waitHydrated(page);
       await page.waitForFunction(() => document.querySelectorAll("[data-booking-fields] .form-field").length > 0, { timeout: 20000 }).catch(() => {});
       await page.evaluate((email) => {
         const form = document.getElementById("booking-form");
@@ -904,55 +908,49 @@ async function run({ workspace, outDir, site }) {
       add("error", "flow:guard-signed-out", e.message);
     }
 
-    // Guest tracking flow: book without an account, click [data-account-link], reach dashboard?track without redirect.
+    // Signed-out booking CTA & direct-route authentication guards.
     try {
       const guestCtx = await browser.newContext({ viewport: desktop });
       const page = await guestCtx.newPage();
-      await page.goto(`${base}/contact`, { waitUntil: "domcontentloaded" });
+
+      // 1. Clicking a booking CTA while logged out must redirect to /login?next=dashboard
+      await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
       await waitHydrated(page);
-      await page.waitForFunction(() => document.querySelectorAll("[data-booking-fields] .form-field").length > 0, { timeout: 20000 }).catch(() => {});
-      const guestEmail = `qa+guest-${Date.now()}@example.com`;
-      await page.evaluate((email) => {
-        const form = document.getElementById("booking-form");
-        if (!form) return;
-        const fields = form.querySelectorAll("[data-booking-fields] input, [data-booking-fields] select, [data-booking-fields] textarea");
-        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-        fields.forEach((el) => {
-          if (el.tagName === "SELECT") {
-            if (el.options.length > 1) el.value = el.options[1].value;
-          } else if (el.type === "date") el.value = tomorrow;
-          else if (el.type === "time") el.value = "19:00";
-          else if (el.type === "number") el.value = "2";
-          else el.value = "QA test";
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        });
-        form.elements.name.value = "Guest Visitor";
-        form.elements.phone.value = "03001234567";
-        form.elements.email.value = email;
-      }, guestEmail);
-      await page.click('#booking-form button[type="submit"]');
-      await page.waitForSelector("#booking-success:not([hidden])", { timeout: 10000 }).catch(() => {});
-      const bookingRef = ((await page.textContent("#booking-success [data-success-ref]").catch(() => "")) || "").trim();
-      if (!/^BK-/.test(bookingRef)) {
-        add("error", "flow:guest-booking", "booking success panel did not show a BK reference");
-      } else {
-        await Promise.all([
-          page.waitForURL(/\/dashboard(\.html)?\?track/, { timeout: 20000 }),
-          page.click("#booking-success [data-account-link]"),
-        ]);
-        await waitHydrated(page);
-        await page.waitForTimeout(500);
-        const cardRef = ((await page.textContent("#my-requests .ref-tag").catch(() => "")) || "").trim();
-        if (cardRef !== bookingRef) {
-          add("error", "flow:guest-tracking", `tracked card did not match reference ${bookingRef} (got: ${cardRef})`);
-        } else {
-          add("info", "flow:guest-tracking", `guest booking tracked successfully on dashboard (${cardRef})`);
-        }
+      const unauthCreate = await page.evaluate(() =>
+        window.DukanStore
+          ? window.DukanStore.createRequest({ type: "booking", name: "Guest", email: "guest@example.com", phone: "03001234567" })
+          : { ok: false }
+      );
+      if (unauthCreate.ok) {
+        add("error", "flow:booking-auth-guard", "unauthenticated createRequest(booking) succeeded without login");
       }
+      await Promise.all([
+        page.waitForURL(/\/login(\.html)?\?next=dashboard/, { timeout: 20000 }),
+        page.click('[data-book-label], [data-booking-cta], a[href*="#book"]'),
+      ]);
+      if (!/\/login(\.html)?$/.test(new URL(page.url()).pathname)) {
+        add("error", "flow:booking-auth-guard", "logged-out booking CTA click did not redirect to login");
+      } else {
+        add("info", "flow:booking-auth-guard", "logged-out booking CTA click redirected to login?next=dashboard");
+      }
+
+      // 2. Direct access to /contact#book or /dashboard?track while logged out must redirect to /login?next=dashboard
+      await page.goto(`${base}/contact#book`, { waitUntil: "domcontentloaded" });
+      await page.waitForURL(/\/login(\.html)?\?next=dashboard/, { timeout: 20000 }).catch(() => {});
+      if (!/\/login(\.html)?$/.test(new URL(page.url()).pathname)) {
+        add("error", "flow:booking-direct-guard", "direct access to /contact#book while signed out did not redirect to login");
+      }
+      await page.goto(`${base}/dashboard?track`, { waitUntil: "domcontentloaded" });
+      await page.waitForURL(/\/login(\.html)?\?next=dashboard/, { timeout: 20000 }).catch(() => {});
+      if (!/\/login(\.html)?$/.test(new URL(page.url()).pathname)) {
+        add("error", "flow:booking-direct-guard", "direct access to /dashboard?track while signed out did not redirect to login");
+      } else {
+        add("info", "flow:booking-direct-guard", "direct access to /contact#book and /dashboard?track blocked when signed out");
+      }
+
       await guestCtx.close();
     } catch (e) {
-      add("error", "flow:guest-tracking", e.message);
+      add("error", "flow:booking-auth-guard", e.message);
     }
   } finally {
     await browser.close().catch(() => {});

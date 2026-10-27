@@ -12,7 +12,47 @@
     else fn();
   }
 
+  function isDashboardPage() {
+    return /\/dashboard(\.html)?$/i.test(location.pathname);
+  }
+
+  function enforceBookingRouteGuard() {
+    if (location.hash === "#book" && !isDashboardPage()) {
+      var current = window.DukanStore ? window.DukanStore.currentUser() : null;
+      location.replace(current ? "dashboard" : "login?next=dashboard");
+      return true;
+    }
+    return false;
+  }
+
+  function syncAuthAndBookingLinks() {
+    var current = window.DukanStore ? window.DukanStore.currentUser() : null;
+    var authLink = document.querySelector(".js-auth-link");
+    if (authLink) {
+      if (current) {
+        authLink.textContent = "My dashboard";
+        authLink.setAttribute("href", "dashboard");
+      } else {
+        authLink.textContent = "Sign in";
+        authLink.setAttribute("href", "login");
+      }
+    }
+    if (!isDashboardPage()) {
+      var targetHref = current ? "dashboard" : "login?next=dashboard";
+      document.querySelectorAll('[data-book-label], [data-booking-cta], a[href*="#book"]').forEach(function (el) {
+        el.setAttribute("data-booking-cta", "true");
+        if (el.tagName === "A") {
+          el.setAttribute("href", targetHref);
+        }
+      });
+    }
+  }
+
+  enforceBookingRouteGuard();
+  window.addEventListener("hashchange", enforceBookingRouteGuard);
+
   ready(function () {
+    if (enforceBookingRouteGuard()) return;
     var sitePromise = window.DukanSite ? window.DukanSite.ready : Promise.resolve(null);
 
     var toggle = document.querySelector(".nav-toggle");
@@ -24,14 +64,17 @@
       });
     }
 
-    var authLink = document.querySelector(".js-auth-link");
-    if (authLink && window.DukanStore) {
-      var user = window.DukanStore.currentUser();
-      if (user) {
-        authLink.textContent = "My dashboard";
-        authLink.setAttribute("href", "dashboard");
-      }
-    }
+    syncAuthAndBookingLinks();
+    window.addEventListener("dukan:store", syncAuthAndBookingLinks);
+
+    document.addEventListener("click", function (event) {
+      if (isDashboardPage()) return;
+      var cta = event.target.closest('[data-book-label], [data-booking-cta], a[href*="#book"]');
+      if (!cta) return;
+      event.preventDefault();
+      var current = window.DukanStore ? window.DukanStore.currentUser() : null;
+      location.href = current ? "dashboard" : "login?next=dashboard";
+    });
 
     sitePromise.then(function (site) {
       if (!site) return;
@@ -63,7 +106,11 @@
         document.querySelectorAll("[data-request-label]").forEach(function (el) {
           el.textContent = category.request;
         });
+        document.querySelectorAll("[data-booking-title]").forEach(function (el) {
+          el.textContent = category.bookTitle;
+        });
       }
+      syncAuthAndBookingLinks();
 
       var grid = document.getElementById("services-grid");
       if (grid && Array.isArray(site.services)) {

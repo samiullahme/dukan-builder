@@ -30,7 +30,7 @@
         <p class="app-muted">Track what you have sent us and update your contact details.</p>
       </div>
       <div class="app-head-actions">
-        <a class="btn btn-primary" href="contact#book">Make a new request</a>
+        <a class="btn btn-primary" href="#book" data-book-label>Make a new request</a>
       </div>
     </div>
 
@@ -46,13 +46,55 @@
 
     <div class="dash-layout">
       <section>
+        <div id="book" class="stack" style="margin-bottom: 28px;">
+          <form class="dash-card form-card" id="booking-form" novalidate>
+            <h2 data-booking-title>Request a booking</h2>
+            <p data-booking-blurb>Tell us what you need and when. We will confirm the details.</p>
+            <div class="form-grid" data-booking-fields></div>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="bk-name">Your name *</label>
+                <input id="bk-name" name="name" type="text" autocomplete="name" required />
+              </div>
+              <div class="form-field">
+                <label for="bk-phone">Phone *</label>
+                <input id="bk-phone" name="phone" type="tel" autocomplete="tel" required />
+              </div>
+              <div class="form-field full">
+                <label for="bk-email">Email *</label>
+                <input id="bk-email" name="email" type="email" autocomplete="email" required />
+              </div>
+              <div class="form-field full">
+                <label for="bk-message">Anything else we should know?</label>
+                <textarea id="bk-message" name="message" rows="3"></textarea>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Send request</button>
+              <span class="muted">We reply by phone or WhatsApp.</span>
+            </div>
+            <p class="form-note" data-form-status role="status"></p>
+          </form>
+
+          <div class="dash-card form-success" id="booking-success" hidden>
+            <h2>Request received</h2>
+            <p>Your reference is</p>
+            <span class="ref" data-success-ref>—</span>
+            <p>The business will confirm the details with you. Keep this reference to track your request below.</p>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="button" data-new-booking>Make another booking</button>
+              <a class="btn btn-quiet" data-account-link href="dashboard">My requests</a>
+            </div>
+          </div>
+        </div>
+
         <div class="section-headline">
           <h2>My requests</h2>
-          <a href="contact">Send another</a>
+          <a href="contact">Send an enquiry</a>
         </div>
         <div class="stack" id="my-requests"></div>
         <div class="empty" id="requests-empty" hidden>
-          Nothing here yet. <a href="contact#book">Send your first request</a> and it will appear here.
+          Nothing here yet. <a href="#book">Send your first request</a> and it will appear here.
         </div>
       </section>
 
@@ -76,31 +118,13 @@
           <p class="form-note" id="profile-status" role="status"></p>
         </form>
       </aside>
-
-      <aside class="dash-card" id="track-aside" hidden>
-        <h2>Look up a request</h2>
-        <p>Enter your reference number and email to check its status.</p>
-        <form id="track-form" novalidate>
-          <div class="field">
-            <label for="track-ref">Reference</label>
-            <input id="track-ref" name="ref" type="text" placeholder="BK-XXXXXX" required />
-          </div>
-          <div class="field">
-            <label for="track-email">Email</label>
-            <input id="track-email" name="email" type="email" autocomplete="email" required />
-          </div>
-          <button class="btn btn-primary" type="submit">Check status</button>
-          <p class="form-note" id="track-status" role="status"></p>
-        </form>
-        <hr style="margin: 1.5rem 0; border: 0; border-top: 1px solid var(--border, #e5e7eb);" />
-        <p><a href="login?next=dashboard">Create an account</a> with the same email to save your details for next time.</p>
-      </aside>
     </div>
   </main>
 
   <script src="theme.js"></script>
   <script src="categories.js"></script>
   <script src="store.js"></script>
+  <script src="forms.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

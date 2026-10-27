@@ -3,8 +3,8 @@
    browser-local store. */
 (function () {
   var params = new URLSearchParams(location.search);
-  var requestedNext = params.get("next") || "";
-  var nextPage = (requestedNext === "dashboard" || requestedNext === "dashboard.html") ? "dashboard" : "";
+  var requestedNext = (params.get("next") || "").replace(/^\/+/, "");
+  var nextPage = /^dashboard(\.html)?(#.*)?$/i.test(requestedNext) ? "dashboard" : "";
 
   function setStatus(message, kind, id) {
     var el = document.getElementById(id || "auth-status");

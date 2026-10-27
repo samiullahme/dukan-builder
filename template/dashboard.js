@@ -110,68 +110,29 @@
     }
   }
 
+  if (window.DukanStore && !window.DukanStore.currentUser()) {
+    location.replace("login?next=dashboard");
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     if (!window.DukanStore) return;
     user = window.DukanStore.currentUser();
-    var params = new URLSearchParams(location.search);
-    var isTrack = params.has("track");
-    var trackRef = params.get("track") || "";
 
-    if (!user && !isTrack) {
+    if (!user) {
       location.replace("login?next=dashboard");
       return;
     }
 
-    if (!user) {
-      var profileAside = document.getElementById("profile-aside");
-      var trackAside = document.getElementById("track-aside");
-      if (profileAside) profileAside.hidden = true;
-      if (trackAside) trackAside.hidden = false;
-      document.querySelectorAll(".js-logout").forEach(function (btn) {
-        btn.textContent = "Sign in";
-        btn.addEventListener("click", function () {
-          location.href = "login?next=dashboard";
-        });
+    document.querySelectorAll(".js-logout").forEach(function (button) {
+      button.addEventListener("click", function () {
+        window.DukanStore.logout();
+        location.href = "/";
       });
-    } else {
-      document.querySelectorAll(".js-logout").forEach(function (button) {
-        button.addEventListener("click", function () {
-          window.DukanStore.logout();
-          location.href = "/";
-        });
-      });
-    }
-
-    var trackForm = document.getElementById("track-form");
-    if (trackForm) {
-      if (trackRef && trackForm.elements.ref && !trackForm.elements.ref.value) {
-        trackForm.elements.ref.value = trackRef;
-      }
-      trackForm.addEventListener("submit", function (event) {
-        event.preventDefault();
-        if (!trackForm.reportValidity()) return;
-        var note = document.getElementById("track-status");
-        var rVal = trackForm.elements.ref.value.trim().toUpperCase();
-        var eVal = trackForm.elements.email.value.trim();
-        if (note) { note.textContent = "Looking up…"; note.className = "form-note"; }
-        window.DukanStore.syncRequests(eVal, [rVal]).then(function (res) {
-          if (!note) return;
-          if (res && res.length) {
-            note.textContent = "Status updated.";
-            note.className = "form-note is-success";
-          } else {
-            note.textContent = "No request found with that reference and email.";
-            note.className = "form-note is-error";
-          }
-        });
-      });
-    }
+    });
 
     window.DukanStore.ready.then(function () {
       render();
-      var list = user
-        ? window.DukanStore.myRequests().filter(function (r) { return r.type !== "newsletter"; })
-        : window.DukanStore.guestRequests();
+      var list = window.DukanStore.myRequests().filter(function (r) { return r.type !== "newsletter"; });
       var byEmail = {};
       list.forEach(function (r) {
         if (r.email && r.ref) {

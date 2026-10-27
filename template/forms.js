@@ -70,7 +70,7 @@
     var account = panel.querySelector("[data-account-link]");
     if (account) {
       var user = window.DukanStore ? window.DukanStore.currentUser() : null;
-      account.setAttribute("href", user ? "dashboard" : "dashboard?track=" + encodeURIComponent(request.ref));
+      account.setAttribute("href", user ? "dashboard" : "login?next=dashboard");
     }
     panel.scrollIntoView({ behavior: "smooth", block: "center" });
   }
@@ -88,6 +88,15 @@
   function setupBooking(site) {
     var form = document.getElementById("booking-form");
     if (!form || !window.DukanStore || !window.DukanCategory) return;
+    var user = window.DukanStore.currentUser();
+    if (!user) {
+      form.hidden = true;
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        location.replace("login?next=dashboard");
+      });
+      return;
+    }
     var category = window.DukanCategory.get(site.category);
     var fields = document.querySelector("[data-booking-fields]");
     var services = Array.isArray(site.services) ? site.services : [];
@@ -103,12 +112,39 @@
     if (blurb) blurb.textContent = category.bookBlurb;
     var requestLabel = document.querySelector("[data-request-label]");
     if (requestLabel) requestLabel.textContent = category.request;
+    document.querySelectorAll("[data-book-label]").forEach(function (el) {
+      el.textContent = category.cta;
+    });
 
-    prefill(form, window.DukanStore.currentUser());
+    prefill(form, user);
     var note = form.querySelector("[data-form-status]");
+    var successPanel = document.getElementById("booking-success");
+
+    function resetBookingForm() {
+      if (successPanel) {
+        successPanel.hidden = true;
+        var warn = successPanel.querySelector("[data-remote-warning]");
+        if (warn) warn.remove();
+      }
+      form.hidden = false;
+      form.reset();
+      prefill(form, window.DukanStore.currentUser());
+      setStatus(note, "", "");
+    }
+
+    document.querySelectorAll('[data-new-booking], a[href="#book"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (form.hidden) resetBookingForm();
+      });
+    });
 
     form.addEventListener("submit", function (event) {
       event.preventDefault();
+      var activeUser = window.DukanStore.currentUser();
+      if (!activeUser) {
+        location.replace("login?next=dashboard");
+        return;
+      }
       if (!form.reportValidity()) return;
       var values = {};
       category.fields.forEach(function (field) {
@@ -127,7 +163,7 @@
         setStatus(note, result.error, "error");
         return;
       }
-      showSuccess(form, document.getElementById("booking-success"), result.request);
+      showSuccess(form, successPanel, result.request);
       if (result.remote) {
         result.remote.then(function (out) {
           if (!out.ok) {
